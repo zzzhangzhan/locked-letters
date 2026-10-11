@@ -38,9 +38,9 @@ export function drawLetter(canvas, { text, preset, image, fold }) {
 
   const message = (text || '').trim();
   if (message) {
-    paintMessage(ctx, width, height, message, fold, Boolean(image));
+    paintMessage(ctx, width, height, message, Boolean(image));
   } else {
-    paintHint(ctx, width, height, fold);
+    paintHint(ctx, width, height);
   }
   if (image) return sampleBack(image);
   return PRESETS.find((item) => item.id === preset)?.back || PRESETS[0].back;
@@ -151,53 +151,28 @@ function sampleBack(image) {
   return `#${hex(r)}${hex(g)}${hex(b)}`;
 }
 
-function contentBox(width, height, fold) {
-  if (fold === 'gate') {
-    const column = width / 3;
-    const pad = column * 0.14;
-    return {
-      x: column + pad,
-      y: height * 0.08,
-      w: column - pad * 2,
-      h: height * 0.84,
-      gutters: [],
-    };
-  }
-  if (fold === 'locked') {
-    const size = width * 0.38;
-    return {
-      x: (width - size) / 2,
-      y: (height - size) / 2,
-      w: size,
-      h: size,
-      gutters: [],
-    };
-  }
+function contentBox(width, height) {
   const padX = width * 0.09;
   const padY = height * 0.07;
-  const gutter = height * 0.04;
   return {
     x: padX,
     y: padY,
     w: width - padX * 2,
     h: height - padY * 2,
-    gutters: [
-      { start: height / 3 - gutter / 2, end: height / 3 + gutter / 2 },
-      { start: (2 * height) / 3 - gutter / 2, end: (2 * height) / 3 + gutter / 2 },
-    ],
+    gutters: [],
   };
 }
 
-function paintHint(ctx, width, height, fold) {
-  const box = contentBox(width, height, fold);
+function paintHint(ctx, width, height) {
+  const box = contentBox(width, height);
   ctx.fillStyle = 'rgba(62, 48, 36, 0.38)';
   ctx.font = `italic ${Math.round(width * 0.034)}px "Iowan Old Style", Palatino, Georgia, serif`;
   ctx.textBaseline = 'top';
   ctx.fillText('Your words will sit here', box.x, box.y);
 }
 
-function paintMessage(ctx, width, height, text, fold, veil) {
-  const box = contentBox(width, height, fold);
+function paintMessage(ctx, width, height, text, veil) {
+  const box = contentBox(width, height);
   const fitted = fitText(ctx, text, box);
   if (veil) {
     ctx.fillStyle = 'rgba(247, 241, 230, 0.78)';

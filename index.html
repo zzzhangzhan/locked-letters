@@ -8,59 +8,70 @@
 <body>
   <canvas id="view"></canvas>
 
-  <section id="composer" class="dock" hidden>
-    <p class="eyebrow">A letter that stays shut</p>
+  <section id="composer" class="float" hidden>
+    <p class="eyebrow">Folded into its own lock</p>
     <ol class="step-nav" aria-label="Steps">
-      <li id="nav-write">Write</li>
-      <li id="nav-paper">Paper</li>
-      <li id="nav-fold">Fold</li>
-      <li id="nav-send">Send</li>
-    </ol>
-
-    <div id="step-write" class="step">
-      <label class="field">
-        <span>Write the letter</span>
-        <textarea id="message" maxlength="4000" placeholder="Write something worth unfolding."></textarea>
-      </label>
-      <div class="step-actions">
-        <button type="button" id="to-paper" class="primary">Choose paper</button>
-      </div>
-    </div>
-
-    <div id="step-paper" class="step" hidden>
-      <div class="choices" id="papers"></div>
-      <div class="step-actions">
-        <button type="button" id="paper-back">Back</button>
-        <button type="button" id="to-fold" class="primary">Choose a fold</button>
-      </div>
-    </div>
-
-    <div id="step-fold" class="step" hidden>
-      <div class="fold-row" id="folds"></div>
-      <div class="step-actions">
-        <button type="button" id="fold-back">Back</button>
-        <button type="button" id="to-send" class="primary">Review and send</button>
-      </div>
-    </div>
-
-    <div id="step-send" class="step" hidden>
-      <p class="send-copy">The letter is ready. Sealing plays the fold, then gives you a link.</p>
-      <div class="step-actions">
-        <button type="button" id="send-back">Back</button>
-        <button type="button" id="seal" class="primary">Seal and send</button>
-      </div>
-      <div id="share" class="share" hidden>
-        <p>The letter is on its way. Share this link.</p>
-        <div class="link-row">
-          <input id="link" readonly />
-          <button type="button" id="copy">Copy</button>
+      <li>
+        <button type="button" id="nav-write" aria-expanded="true" aria-controls="step-write"><span class="dot" aria-hidden="true"></span><span id="write-title">Write your message</span></button>
+        <div id="step-write" class="step is-on">
+          <div class="step-body">
+            <p class="step-copy">It shows up on the sheet as you type.</p>
+            <textarea id="message" maxlength="4000" aria-labelledby="write-title" placeholder="Write something worth unfolding."></textarea>
+            <div class="step-actions">
+              <button type="button" id="to-paper" class="primary">Next</button>
+            </div>
+          </div>
         </div>
-        <button type="button" id="another" class="texty">Write another</button>
-      </div>
-    </div>
-
+      </li>
+      <li>
+        <button type="button" id="nav-paper" aria-expanded="false" aria-controls="step-paper"><span class="dot" aria-hidden="true"></span>Choose the paper</button>
+        <div id="step-paper" class="step">
+          <div class="step-body">
+            <p class="step-copy">Cream or kraft. The sheet takes it on.</p>
+            <div class="choices" id="papers"></div>
+            <div class="step-actions">
+              <button type="button" id="to-fold" class="primary">Next</button>
+            </div>
+          </div>
+        </div>
+      </li>
+      <li>
+        <button type="button" id="nav-fold" aria-expanded="false" aria-controls="step-fold"><span class="dot" aria-hidden="true"></span>Choose the locking mechanism</button>
+        <div id="step-fold" class="step">
+          <div class="step-body">
+            <p class="step-copy">The sheet plays it as you choose.</p>
+            <div class="fold-row" id="folds"></div>
+            <div class="step-actions">
+              <button type="button" id="to-send" class="primary">Next</button>
+            </div>
+          </div>
+        </div>
+      </li>
+      <li>
+        <button type="button" id="nav-send" aria-expanded="false" aria-controls="step-send"><span class="dot" aria-hidden="true"></span>Seal and send</button>
+        <div id="step-send" class="step">
+          <div class="step-body">
+            <p class="step-copy send-copy">Seal it, and it flies with a link.</p>
+            <div class="step-actions">
+              <button type="button" id="seal" class="primary">Seal and send</button>
+            </div>
+          </div>
+        </div>
+      </li>
+    </ol>
     <p id="status" class="status" role="status"></p>
   </section>
+
+  <div id="share" class="sent" hidden>
+    <div class="sent-card">
+      <p>The letter is on its way. Share this link.</p>
+      <div class="link-row">
+        <input id="link" readonly />
+        <button type="button" id="copy">Copy</button>
+      </div>
+      <button type="button" id="another" class="texty">Write another</button>
+    </div>
+  </div>
 
   <p id="hint" class="hint" hidden>Drag across the letter to unfold it</p>
 

@@ -63,6 +63,14 @@ export function createScene(canvas) {
   let viewRadius = 5;
   let frameDistance = 5;
   let onUnfold = null;
+  let framing = 'aside';
+  let framed = false;
+  let shownX = 0;
+  let shownY = 0;
+  let fly = 0;
+  let flyStarted = 0;
+  let flyMs = 1;
+  let flyResolve = null;
 
   const pointer = {
     id: null,
@@ -260,19 +268,66 @@ export function createScene(canvas) {
     camera.updateProjectionMatrix();
   }
 
-  function frameSubject() {
+  function frameSubject(dt) {
     const dock = document.getElementById('composer');
-    const open = Boolean(dock && !dock.hidden);
-    const cover = open
-      ? Math.min(dock.offsetHeight, canvas.clientHeight * 0.5) / canvas.clientHeight
-      : 0;
-    const fit = cover > 0 ? 1.45 / Math.max(0.62, 1 - cover) : 1;
+    const aside = framing === 'aside' && Boolean(dock && !dock.hidden);
+    const fit = framing === 'away' ? 1.12 + fly * 0.9 : aside ? 1.5 : 1.05;
     frameDistance = spherical.radius * fit;
     const viewH = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * frameDistance;
-    holder.position.set(0, cover * viewH * 0.32, 0);
+    const viewW = viewH * camera.aspect;
+    const goalX = aside ? viewW * 0.22 : 0;
+    const goalY = aside ? viewH * 0.04 : 0;
+    if (!framed) {
+      shownX = goalX;
+      shownY = goalY;
+      framed = true;
+    } else {
+      shownX = THREE.MathUtils.damp(shownX, goalX, 3.4, dt);
+      shownY = THREE.MathUtils.damp(shownY, goalY, 3.4, dt);
+    }
+    if (framing === 'away') {
+      const u = Math.min(1, (performance.now() - flyStarted) / flyMs);
+      fly = u * u;
+      if (u >= 1 && flyResolve) {
+        const done = flyResolve;
+        flyResolve = null;
+        done();
+      }
+    }
+    const lift = fly * viewH * 1.35;
+    holder.position.set(shownX * (1 - fly), shownY + lift, fly * viewH * 0.45);
+    holder.rotation.z = fly * -0.4;
     target.set(0, 0, 0);
-    shadow.position.x = 0;
+    shadow.position.x = shownX * (1 - fly);
     shadow.position.z = 0.15;
+    shadow.material.opacity = 1 - fly;
+  }
+
+  function takeCenter() {
+    framing = 'center';
+    fly = 0;
+  }
+
+  function flyAway(ms) {
+    framing = 'away';
+    fly = 0;
+    flyStarted = performance.now();
+    flyMs = Math.max(ms, 1);
+    return new Promise((resolve) => {
+      flyResolve = resolve;
+    });
+  }
+
+  function present() {
+    framing = 'aside';
+    fly = 0;
+    holder.rotation.z = 0;
+    shadow.material.opacity = 1;
+    if (flyResolve) {
+      const done = flyResolve;
+      flyResolve = null;
+      done();
+    }
   }
 
   function easeToRead(dt) {
@@ -297,7 +352,7 @@ export function createScene(canvas) {
 
   function animate() {
     const dt = Math.min(clock.getDelta(), 0.05);
-    frameSubject();
+    frameSubject(dt);
     if (mode === 'reader' && !pointer.kind && !playing && progress < 0.08 && !readLatched) {
       if (easeToRead(dt)) readLatched = true;
     }
@@ -327,6 +382,9 @@ export function createScene(canvas) {
     setLetter,
     setProgress,
     playTo,
+    takeCenter,
+    flyAway,
+    present,
     onUnfold(listener) {
       onUnfold = listener;
     },
