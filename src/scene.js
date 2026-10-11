@@ -61,6 +61,7 @@ export function createScene(canvas) {
   let readLatched = false;
   let readRadius = 3.4;
   let viewRadius = 5;
+  let frameDistance = 5;
   let onUnfold = null;
 
   const pointer = {
@@ -260,24 +261,17 @@ export function createScene(canvas) {
   }
 
   function frameSubject() {
-    const dist = spherical.radius;
-    const viewH = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * dist;
-    const viewW = viewH * camera.aspect;
-    let shiftX = 0;
-    let shiftY = 0;
-    const panel = document.getElementById('composer');
-    if (panel && !panel.hidden) {
-      if (window.innerWidth > 800) {
-        const cover = Math.min(panel.offsetWidth + 36, canvas.clientWidth * 0.55) / canvas.clientWidth;
-        shiftX = (cover * viewW) / 2;
-      } else {
-        const cover = Math.min(panel.offsetHeight, canvas.clientHeight * 0.58) / canvas.clientHeight;
-        shiftY = (cover * viewH) / 2;
-      }
-    }
-    holder.position.set(shiftX, shiftY, 0);
-    target.set(shiftX, shiftY, 0);
-    shadow.position.x = shiftX;
+    const dock = document.getElementById('composer');
+    const open = Boolean(dock && !dock.hidden);
+    const cover = open
+      ? Math.min(dock.offsetHeight, canvas.clientHeight * 0.5) / canvas.clientHeight
+      : 0;
+    const fit = cover > 0 ? 1.45 / Math.max(0.62, 1 - cover) : 1;
+    frameDistance = spherical.radius * fit;
+    const viewH = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * frameDistance;
+    holder.position.set(0, cover * viewH * 0.32, 0);
+    target.set(0, 0, 0);
+    shadow.position.x = 0;
     shadow.position.z = 0.15;
   }
 
@@ -307,7 +301,7 @@ export function createScene(canvas) {
     if (mode === 'reader' && !pointer.kind && !playing && progress < 0.08 && !readLatched) {
       if (easeToRead(dt)) readLatched = true;
     }
-    const offset = new THREE.Vector3().setFromSpherical(spherical);
+    const offset = new THREE.Vector3().setFromSpherical(spherical).setLength(frameDistance);
     camera.position.copy(target).add(offset);
     camera.lookAt(target);
     renderer.render(scene, camera);

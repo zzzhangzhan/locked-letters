@@ -1,43 +1,47 @@
 import { FOLDS } from './folds.js';
 import { PRESETS, createLetterCanvas, drawLetter } from './texture.js';
 
+const PAPERS = PRESETS.filter((item) => item.id === 'cream' || item.id === 'kraft');
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const FOLD_MS = 2600;
+
+const MINIS = {
+  trifold: '<span class="sheet tri"><i class="top"></i><i class="mid"></i><i class="bot"></i></span>',
+  gate: '<span class="sheet gate"><i class="left"></i><i class="mid"></i><i class="right"></i></span>',
+  locked: '<span class="sheet lock"><i class="base"></i><i class="c nw"></i><i class="c ne"></i><i class="c se"></i><i class="c sw"></i></span>',
+};
 
 export function mountComposer(scene) {
   const composer = document.getElementById('composer');
   const message = document.getElementById('message');
   const papers = document.getElementById('papers');
   const folds = document.getElementById('folds');
-  const upload = document.getElementById('upload');
-  const uploadLabel = document.getElementById('upload-label');
-  const watch = document.getElementById('watch');
   const seal = document.getElementById('seal');
   const status = document.getElementById('status');
   const share = document.getElementById('share');
   const link = document.getElementById('link');
   const copy = document.getElementById('copy');
   const another = document.getElementById('another');
+  const sendCopy = composer.querySelector('.send-copy');
 
   const canvas = createLetterCanvas();
   let preset = 'cream';
   let fold = 'trifold';
-  let image = null;
-  let objectUrl = null;
+  let step = 'write';
   let timer = 0;
+  let busy = false;
 
   composer.hidden = false;
   scene.setMode('composer');
 
-  PRESETS.forEach((item) => {
+  PAPERS.forEach((item) => {
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = `swatch ${item.id}`;
-    button.title = item.name;
-    button.setAttribute('aria-label', item.name);
+    button.className = `paper ${item.id}`;
     button.setAttribute('aria-pressed', String(item.id === preset));
+    button.innerHTML = `<span class="swatch ${item.id}" aria-hidden="true"></span><span>${item.name}</span>`;
     button.addEventListener('click', () => {
       preset = item.id;
-      clearUpload();
       markPapers();
       render();
     });
@@ -49,12 +53,13 @@ export function mountComposer(scene) {
     button.type = 'button';
     button.className = 'fold';
     button.setAttribute('aria-pressed', String(item.id === fold));
-    button.innerHTML = `<strong>${item.name}</strong><small>${item.blurb}</small>`;
+    button.innerHTML = `<span class="mini" aria-hidden="true">${MINIS[item.id]}</span><span class="fold-name">${item.name}</span>`;
     button.addEventListener('click', () => {
+      if (busy) return;
       fold = item.id;
       markFolds();
-      scene.setProgress(0);
       render();
+      previewFold();
     });
     folds.append(button);
   });
@@ -62,56 +67,45 @@ export function mountComposer(scene) {
   message.addEventListener('input', () => {
     window.clearTimeout(timer);
     timer = window.setTimeout(render, 90);
+    if (message.value.trim()) status.textContent = '';
   });
 
-  upload.addEventListener('change', () => {
-    const file = upload.files?.[0];
-    if (!file) return;
-    if (file.size > 5 * 1024 * 1024) {
-      status.textContent = 'That image is larger than 5 MB.';
-      upload.value = '';
+  document.getElementById('to-paper').addEventListener('click', () => {
+    if (!message.value.trim()) {
+      status.textContent = 'Write a message before choosing paper.';
+      message.focus();
       return;
     }
-    if (objectUrl) URL.revokeObjectURL(objectUrl);
-    objectUrl = URL.createObjectURL(file);
-    const next = new Image();
-    next.onload = () => {
-      image = next;
-      uploadLabel.textContent = file.name;
-      upload.closest('.upload').classList.add('has-file');
-      markPapers();
-      status.textContent = '';
-      render();
-    };
-    next.onerror = () => {
-      status.textContent = 'That image could not be read.';
-    };
-    next.src = objectUrl;
+    showStep('paper');
   });
-
-  watch.addEventListener('click', async () => {
-    setBusy(true);
-    status.textContent = '';
-    scene.setProgress(0);
-    await scene.playTo(1, reduceMotion ? 0 : 2800);
-    setBusy(false);
+  document.getElementById('paper-back').addEventListener('click', () => showStep('write'));
+  document.getElementById('to-fold').addEventListener('click', () => showStep('fold'));
+  document.getElementById('fold-back').addEventListener('click', () => {
+    scene.playTo(0, 0);
+    showStep('paper');
   });
+  document.getElementById('to-send').addEventListener('click', () => {
+    scene.playTo(0, 0);
+    showStep('send');
+  });
+  document.getElementById('send-back').addEventListener('click', () => showStep('fold'));
 
   seal.addEventListener('click', async () => {
     const text = message.value.trim();
     if (!text) {
       status.textContent = 'Write a message before sealing.';
+      showStep('write');
       message.focus();
       return;
     }
     setBusy(true);
     status.textContent = 'Sealing…';
     share.hidden = true;
-    const pending = saveLetter(text, fold, preset, upload.files?.[0]);
-    scene.setProgress(0);
+    const pending = saveLetter(text, fold, preset);
+    await scene.playTo(0, 0);
     const [saved] = await Promise.all([
       pending,
-      scene.playTo(1, reduceMotion ? 0 : 2800),
+      scene.playTo(1, reduceMotion ? 0 : FOLD_MS),
     ]);
     setBusy(false);
     if (!saved.ok) {
@@ -120,6 +114,8 @@ export function mountComposer(scene) {
     }
     status.textContent = '';
     link.value = `${window.location.origin}${saved.url}`;
+    sendCopy.hidden = true;
+    seal.parentElement.hidden = true;
     share.hidden = false;
     link.focus();
     link.select();
@@ -141,27 +137,48 @@ export function mountComposer(scene) {
 
   another.addEventListener('click', () => {
     share.hidden = true;
+    sendCopy.hidden = false;
+    seal.parentElement.hidden = false;
     status.textContent = '';
-    scene.setProgress(0);
+    scene.playTo(0, 0);
+    showStep('write');
     message.focus();
   });
 
   render();
+  showStep('write');
+
+  function showStep(next) {
+    step = next;
+    status.textContent = '';
+    for (const name of ['write', 'paper', 'fold', 'send']) {
+      document.getElementById(`step-${name}`).hidden = name !== next;
+      const nav = document.getElementById(`nav-${name}`);
+      nav.setAttribute('aria-current', name === next ? 'step' : 'false');
+    }
+    if (next === 'fold') previewFold();
+    else if (next !== 'send') scene.playTo(0, 0);
+  }
+
+  function previewFold() {
+    scene.playTo(0, 0).then(() => {
+      if (step === 'fold') scene.playTo(1, reduceMotion ? 0 : FOLD_MS);
+    });
+  }
 
   function render() {
     const backColor = drawLetter(canvas, {
       text: message.value,
       preset,
-      image,
+      image: null,
       fold,
     });
     scene.setLetter({ canvas, backColor, fold });
   }
 
   function markPapers() {
-    const usingUpload = Boolean(image);
-    papers.querySelectorAll('.swatch').forEach((button, index) => {
-      button.setAttribute('aria-pressed', String(!usingUpload && PRESETS[index].id === preset));
+    papers.querySelectorAll('.paper').forEach((button, index) => {
+      button.setAttribute('aria-pressed', String(PAPERS[index].id === preset));
     });
   }
 
@@ -171,30 +188,20 @@ export function mountComposer(scene) {
     });
   }
 
-  function clearUpload() {
-    image = null;
-    upload.value = '';
-    uploadLabel.textContent = 'Upload a background';
-    upload.closest('.upload').classList.remove('has-file');
-    if (objectUrl) {
-      URL.revokeObjectURL(objectUrl);
-      objectUrl = null;
-    }
-  }
-
-  function setBusy(busy) {
-    watch.disabled = busy;
-    seal.disabled = busy;
-    watch.textContent = busy ? 'Folding…' : 'Watch it fold';
+  function setBusy(next) {
+    busy = next;
+    composer.querySelectorAll('button').forEach((button) => {
+      button.disabled = next;
+    });
+    if (!next) seal.disabled = false;
   }
 }
 
-async function saveLetter(text, fold, preset, file) {
+async function saveLetter(text, fold, preset) {
   const body = new FormData();
   body.set('text', text);
   body.set('fold', fold);
-  if (file) body.set('image', file);
-  else body.set('preset', preset);
+  body.set('preset', preset);
 
   try {
     const response = await fetch('/api/letters', { method: 'POST', body });

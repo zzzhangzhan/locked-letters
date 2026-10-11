@@ -8,47 +8,59 @@
 <body>
   <canvas id="view"></canvas>
 
-  <aside id="composer" class="panel" hidden>
-    <header class="panel-head">
-      <p class="eyebrow">A letter that stays shut</p>
-      <h1>Locked letter</h1>
-    </header>
+  <section id="composer" class="dock" hidden>
+    <p class="eyebrow">A letter that stays shut</p>
+    <ol class="step-nav" aria-label="Steps">
+      <li id="nav-write">Write</li>
+      <li id="nav-paper">Paper</li>
+      <li id="nav-fold">Fold</li>
+      <li id="nav-send">Send</li>
+    </ol>
 
-    <label class="field">
-      <span>Message</span>
-      <textarea id="message" maxlength="4000" placeholder="Write something worth unfolding."></textarea>
-    </label>
-
-    <div class="field">
-      <span>Paper</span>
-      <div class="choices" id="papers"></div>
-      <label class="upload">
-        <input id="upload" type="file" accept="image/jpeg,image/png,image/webp" />
-        <span id="upload-label">Upload a background</span>
+    <div id="step-write" class="step">
+      <label class="field">
+        <span>Write the letter</span>
+        <textarea id="message" maxlength="4000" placeholder="Write something worth unfolding."></textarea>
       </label>
+      <div class="step-actions">
+        <button type="button" id="to-paper" class="primary">Choose paper</button>
+      </div>
     </div>
 
-    <div class="field">
-      <span>Fold</span>
-      <div class="stack" id="folds"></div>
+    <div id="step-paper" class="step" hidden>
+      <div class="choices" id="papers"></div>
+      <div class="step-actions">
+        <button type="button" id="paper-back">Back</button>
+        <button type="button" id="to-fold" class="primary">Choose a fold</button>
+      </div>
     </div>
 
-    <div class="actions">
-      <button type="button" id="watch">Watch it fold</button>
-      <button type="button" id="seal" class="primary">Seal letter</button>
+    <div id="step-fold" class="step" hidden>
+      <div class="fold-row" id="folds"></div>
+      <div class="step-actions">
+        <button type="button" id="fold-back">Back</button>
+        <button type="button" id="to-send" class="primary">Review and send</button>
+      </div>
+    </div>
+
+    <div id="step-send" class="step" hidden>
+      <p class="send-copy">The letter is ready. Sealing plays the fold, then gives you a link.</p>
+      <div class="step-actions">
+        <button type="button" id="send-back">Back</button>
+        <button type="button" id="seal" class="primary">Seal and send</button>
+      </div>
+      <div id="share" class="share" hidden>
+        <p>The letter is on its way. Share this link.</p>
+        <div class="link-row">
+          <input id="link" readonly />
+          <button type="button" id="copy">Copy</button>
+        </div>
+        <button type="button" id="another" class="texty">Write another</button>
+      </div>
     </div>
 
     <p id="status" class="status" role="status"></p>
-
-    <div id="share" class="share" hidden>
-      <p>The letter is sealed. Share this link.</p>
-      <div class="link-row">
-        <input id="link" readonly />
-        <button type="button" id="copy">Copy</button>
-      </div>
-      <button type="button" id="another" class="texty">Write another</button>
-    </div>
-  </aside>
+  </section>
 
   <p id="hint" class="hint" hidden>Drag across the letter to unfold it</p>
 
