@@ -10,7 +10,7 @@ export const PRESETS = [
 const presetCache = new Map();
 
 export function sheetAspect(fold) {
-  return fold === 'locked' ? 1 : 8.5 / 11;
+  return fold === 'locked' || fold === 'pagu' ? 1 : 8.5 / 11;
 }
 
 export function createLetterCanvas() {

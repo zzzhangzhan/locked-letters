@@ -17,7 +17,7 @@ export async function mountReader(scene, id) {
     return;
   }
 
-  if (!['trifold', 'gate', 'locked'].includes(payload.fold)) {
+  if (!['trifold', 'gate', 'locked', 'pagu'].includes(payload.fold)) {
     missing.hidden = false;
     return;
   }

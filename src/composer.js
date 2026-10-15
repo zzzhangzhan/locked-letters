@@ -9,6 +9,7 @@ const MINIS = {
   trifold: '<span class="sheet tri"><i class="mid"></i><i class="bot"></i><i class="top"></i></span>',
   gate: '<span class="sheet gate"><i class="mid"></i><i class="left"></i><i class="right"></i></span>',
   locked: '<span class="sheet lock"><i class="base"></i><i class="c nw"></i><i class="c ne"></i><i class="c se"></i><i class="c sw"></i></span>',
+  pagu: '<span class="sheet hex"><i class="body"></i><i class="tuck"></i></span>',
 };
 
 export function mountComposer(scene) {
@@ -99,7 +100,7 @@ export function mountComposer(scene) {
     const pending = saveLetter(text, fold, preset);
     const motion = reduceMotion ? 0 : 1;
     await scene.playTo(0, 420 * motion);
-    await scene.playTo(1, FOLD_MS * motion);
+    await scene.playTo(1, foldDuration() * motion);
     await scene.flyAway(1500 * motion);
     const saved = await pending;
     setBusy(false);
@@ -205,7 +206,7 @@ export function mountComposer(scene) {
     while (step === 'send' && token === loopToken && !sending) {
       if (!(await scene.playTo(0, 650 * motion))) return;
       if (step !== 'send' || token !== loopToken || sending) return;
-      if (!(await scene.playTo(1, FOLD_MS * motion))) return;
+      if (!(await scene.playTo(1, foldDuration() * motion))) return;
       if (step !== 'send' || token !== loopToken || sending) return;
       await wait(420);
     }
@@ -217,9 +218,13 @@ export function mountComposer(scene) {
     });
   }
 
+  function foldDuration() {
+    return fold === 'pagu' ? 4800 : FOLD_MS;
+  }
+
   function previewFold() {
     scene.playTo(0, 0).then(() => {
-      if (step === 'fold') scene.playTo(1, reduceMotion ? 0 : FOLD_MS);
+      if (step === 'fold') scene.playTo(1, reduceMotion ? 0 : foldDuration());
     });
   }
 

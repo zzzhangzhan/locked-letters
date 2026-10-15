@@ -335,6 +335,32 @@ textarea:focus, input:focus, button:focus-visible {
 .mini .se { right: 0; bottom: 0; clip-path: polygon(100% 0, 100% 100%, 0 100%); transform-origin: 50% 50%; z-index: 3; animation: lock-se 3.6s infinite; }
 .mini .sw { left: 0; bottom: 0; clip-path: polygon(0 0, 100% 100%, 0 100%); transform-origin: 50% 50%; z-index: 4; animation: lock-sw 3.6s infinite; }
 
+.mini .hex { width: 54px; height: 40px; }
+.mini .hex .body {
+  inset: 4px 0;
+  border: 0;
+  background: #f3ead7;
+  clip-path: polygon(22% 0, 78% 0, 100% 42%, 78% 100%, 18% 100%, 0 58%);
+}
+.mini .hex .tuck {
+  left: 18%;
+  top: 4px;
+  width: 64%;
+  height: 78%;
+  border: 0;
+  background: #e7d7bc;
+  clip-path: polygon(8% 0, 100% 18%, 42% 100%);
+  transform-origin: 70% 12%;
+  z-index: 1;
+  animation: hex-tuck 3.6s infinite;
+}
+
+@keyframes hex-tuck {
+  0%, 55% { transform: none; background: #f3ead7; }
+  68% { transform: scale(0.15); background: #cbb892; }
+  82%, 90% { transform: scale(-1); background: #d7c4a2; }
+  100% { transform: none; background: #f3ead7; }
+}
 @keyframes tri-bot {
   0%, 8% { transform: scaleY(1); background: #f3ead7; }
   20% { transform: scaleY(0.06); background: #cbb892; }
