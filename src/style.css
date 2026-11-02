@@ -34,6 +34,53 @@ body { overflow: hidden; }
 
 #view:active { cursor: grabbing; }
 
+#view { transition: opacity 0.6s ease; }
+.on-intro #view { opacity: 0; }
+
+.intro-film {
+  position: fixed;
+  z-index: 1;
+  inset: 0 0 0 380px;
+  margin: 0;
+  overflow: hidden;
+  pointer-events: none;
+  mix-blend-mode: lighten;
+  transition: opacity 0.6s ease;
+  animation: float-in 0.9s ease;
+}
+
+.intro-film.leaving { opacity: 0; }
+
+/* The open sheet fills about 59% of the clip's width and 79% of its height. */
+.intro-film video {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(calc(100% - 48px), 620px, 150dvh);
+  height: auto;
+  aspect-ratio: 600 / 338;
+  transform: translate(-50%, -50%);
+}
+
+.intro-credit {
+  margin: 0;
+  font-family: "Gill Sans", "Trebuchet MS", sans-serif;
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  line-height: 1.5;
+  color: rgba(205, 180, 137, 0.75);
+}
+
+.intro-credit a {
+  color: #cdb489;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(205, 180, 137, 0.45);
+}
+
+.intro-credit a[target="_blank"]::after { content: " \2197"; }
+
+.intro-credit a:hover { color: var(--paper); border-color: currentColor; }
+
 .float {
   position: fixed;
   z-index: 2;
@@ -65,9 +112,12 @@ body { overflow: hidden; }
   margin: 0;
   font-size: 2.1rem;
   font-weight: 400;
-  line-height: 1.08;
-  letter-spacing: -0.02em;
+  line-height: 1.04;
+  letter-spacing: -0.025em;
+  text-wrap: balance;
 }
+
+.intro-title em { color: #cdb489; }
 
 .intro-copy {
   margin: 0;
@@ -526,6 +576,10 @@ button:disabled { opacity: 0.55; cursor: wait; }
 .missing-card a { color: var(--wax); }
 
 @media not all and (max-width: 820px) and (max-aspect-ratio: 4/5) {
+  #intro { width: min(440px, calc(100vw - 56px)); gap: 18px; }
+  #intro .intro-title { font-size: 3.4rem; }
+  #intro .intro-actions button { padding: 13px 30px; }
+  .intro-film { left: 500px; }
   #composer {
     top: max(28px, calc(50% - 230px));
     transform: none;
@@ -589,6 +643,9 @@ button:disabled { opacity: 0.55; cursor: wait; }
 @media (max-width: 800px) {
   .float { left: 20px; width: min(320px, calc(100vw - 40px)); }
   .hint { bottom: auto; top: 16px; }
+  #intro { width: min(320px, calc(100vw - 40px)); }
+  #intro .intro-title { font-size: 2.4rem; }
+  .intro-film { left: 350px; }
 }
 
 @media (max-width: 820px) and (max-aspect-ratio: 4/5) {
@@ -608,19 +665,23 @@ button:disabled { opacity: 0.55; cursor: wait; }
     padding: 14px 20px calc(10px + env(safe-area-inset-bottom));
   }
   :root { --dock-height: clamp(300px, 36%, 340px); }
-  #composer .eyebrow { display: none; }
   #intro {
     height: auto;
-    min-height: var(--dock-height);
+    gap: 12px;
+    padding-top: 20px;
     max-height: 75%;
     overflow-y: auto;
   }
-  .intro-title { font-size: 1.6rem; }
+  #intro { width: auto; }
+  #intro .intro-title { font-size: 2.3rem; }
   .intro-copy { font-size: 0.92rem; }
-  .intro-actions { margin-top: auto; }
+  .intro-actions { margin-top: 6px; }
   .intro-actions button { flex: 1; padding: 13px 14px; }
-  #composer { height: var(--dock-height); }
+  #composer { height: auto; min-height: var(--dock-height); max-height: 75%; }
   #message { flex: none; max-height: 110px; }
+  .intro-film { inset: 0 0 var(--intro-height, 45dvh) 0; }
+  .intro-film video { width: min(115%, calc((100dvh - var(--intro-height, 45dvh)) * 1.5)); }
+  .intro-credit { text-align: center; }
 }
 
 @keyframes screen-in {

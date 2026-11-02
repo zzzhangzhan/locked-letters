@@ -3,11 +3,13 @@ import { buildFold, rollEdges, sheetSize } from './folds.js';
 
 // Linear-space multiplier, so folded-over paper reads as the back of the sheet.
 const BACK_SHADE = 0.66;
+// Phones get fewer pixels and a smaller shadow map, which they redraw far slower.
+const lowPower = window.matchMedia('(pointer: coarse)').matches;
 
 export function createScene(canvas) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, lowPower ? 1.5 : 2));
   renderer.setClearColor(0x1c1410);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.15;
@@ -27,15 +29,17 @@ export function createScene(canvas) {
   key.position.set(-0.1, 4.3, 2.8);
   key.target = holder;
   key.castShadow = true;
-  key.shadow.mapSize.set(4096, 4096);
+  key.shadow.mapSize.setScalar(lowPower ? 2048 : 4096);
   Object.assign(key.shadow.camera, { left: -2.4, right: 2.4, top: 2.4, bottom: -2.4, near: 0.5, far: 14 });
   // Lit from about 40 degrees off the tilted sheet, past its top edge, each
   // layer's edge throws a shadow down the sheet about as long as the step is
   // high: a thin dark line along every seam and stack.
   // Depth bias (a share of the camera's near-to-far range) spares single-layer
   // steps, which would otherwise freckle with acne.
-  key.shadow.bias = -0.0006;
-  key.shadow.normalBias = 0.006;
+  // Both scale with the shadow map's texel size.
+  const texel = 4096 / key.shadow.mapSize.x;
+  key.shadow.bias = -0.0006 * texel;
+  key.shadow.normalBias = 0.006 * texel;
   key.shadow.radius = 4;
   scene.add(key);
   const fill = new THREE.DirectionalLight(0xb9c8e0, 0.22);
@@ -76,6 +80,7 @@ export function createScene(canvas) {
   let frontMat = null;
   let backMat = null;
   let model = null;
+  const models = new Map();
   let fold = 'trifold';
   let progress = 0;
   let mode = 'composer';
@@ -97,6 +102,8 @@ export function createScene(canvas) {
   let flyStarted = 0;
   let flyMs = 1;
   let flyResolve = null;
+  let dirty = true;
+  let lastPose = '';
 
   const pointer = {
     id: null,
@@ -151,6 +158,7 @@ export function createScene(canvas) {
       texture.needsUpdate = true;
     }
     backMat.color.set(backColor).multiplyScalar(BACK_SHADE);
+    dirty = true;
 
     const size = sheetSize(nextFold);
     readRadius = size.h * 1.38;
@@ -163,20 +171,26 @@ export function createScene(canvas) {
     }
   }
 
+  // Building a fold takes up to a second, so each is built once and kept.
   function mountModel() {
-    if (model) {
-      holder.remove(model.root);
-      model.root.traverse((obj) => {
-        if (obj.geometry) obj.geometry.dispose();
-      });
-    }
-    model = buildFold(fold, { front: frontMat, back: backMat });
-    model.root.traverse((obj) => {
+    if (model) holder.remove(model.root);
+    prepare(fold);
+    model = models.get(fold);
+    holder.add(model.root);
+    model.setProgress(progress);
+    dirty = true;
+  }
+
+  // Builds a fold ahead of time, so switching to it later doesn't stall.
+  function prepare(id) {
+    if (models.has(id) || !frontMat) return;
+    const built = buildFold(id, { front: frontMat, back: backMat });
+    built.root.traverse((obj) => {
       obj.castShadow = true;
       obj.receiveShadow = true;
     });
-    holder.add(model.root);
-    model.setProgress(progress);
+    built.setProgress(0);
+    models.set(id, built);
   }
 
   function restPose() {
@@ -189,7 +203,10 @@ export function createScene(canvas) {
   function setProgress(value) {
     const previous = progress;
     progress = THREE.MathUtils.clamp(value, 0, 1);
-    model?.setProgress(progress);
+    if (progress !== previous) {
+      model?.setProgress(progress);
+      dirty = true;
+    }
     if (mode === 'reader' && previous >= 0.08 && progress < 0.08) readLatched = false;
     if (progress > 0.12) readLatched = false;
   }
@@ -291,6 +308,7 @@ export function createScene(canvas) {
     renderer.setSize(width, height, false);
     camera.aspect = width / height;
     camera.updateProjectionMatrix();
+    dirty = true;
   }
 
   function frameSubject(dt) {
@@ -341,6 +359,11 @@ export function createScene(canvas) {
     shadow.position.x = shownX * (1 - fly);
     shadow.position.z = 0.15;
     shadow.material.opacity = 1 - fly;
+  }
+
+  function snapFrame() {
+    framed = false;
+    dirty = true;
   }
 
   function takeCenter() {
@@ -399,7 +422,19 @@ export function createScene(canvas) {
     const offset = new THREE.Vector3().setFromSpherical(spherical).setLength(frameDistance);
     camera.position.copy(target).add(offset);
     camera.lookAt(target);
-    renderer.render(scene, camera);
+    // Only draw when something on screen moved, so a still letter leaves the
+    // phone free for typing.
+    const pose = [
+      camera.position.x, camera.position.y, camera.position.z,
+      holder.position.x, holder.position.y, holder.position.z,
+      holder.rotation.x, holder.rotation.y, holder.rotation.z,
+      shownLift, camera.aspect, shadow.material.opacity,
+    ].map((value) => value.toFixed(4)).join();
+    if (dirty || pose !== lastPose) {
+      renderer.render(scene, camera);
+      lastPose = pose;
+      dirty = false;
+    }
     requestAnimationFrame(animate);
   }
 
@@ -420,8 +455,10 @@ export function createScene(canvas) {
     setMode,
     setLetter,
     setProgress,
+    prepare,
     playTo,
     takeCenter,
+    snapFrame,
     flyAway,
     present,
     onUnfold(listener) {

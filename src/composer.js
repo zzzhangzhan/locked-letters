@@ -5,6 +5,8 @@ import { PRESETS, createLetterCanvas, drawLetter } from './texture.js';
 const PAPERS = PRESETS.filter((item) => item.id === 'cream' || item.id === 'kraft');
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const FOLD_MS = { gate: 3800, pagu: 7400 };
+// How long typing pauses before the sheet is redrawn; phones redraw slowly.
+const TYPE_MS = window.matchMedia('(pointer: coarse)').matches ? 260 : 90;
 
 const MINIS = {
   gate: '<span class="sheet gate"><i class="l"></i><i class="ml"></i><span class="half"><i class="mr"></i><i class="r"></i></span></span>',
@@ -12,6 +14,8 @@ const MINIS = {
 
 export function mountComposer(scene) {
   const intro = document.getElementById('intro');
+  const film = document.getElementById('intro-film');
+  const video = film.querySelector('video');
   const start = document.getElementById('start');
   const composer = document.getElementById('composer');
   const message = document.getElementById('message');
@@ -33,12 +37,19 @@ export function mountComposer(scene) {
 
   const canvas = createLetterCanvas();
   let preset = 'cream';
-  let fold = 'pagu';
+  let fold = FOLDS[0].id;
   let step = 'intro';
   let timer = 0;
   let busy = false;
   let previewToken = 0;
   intro.hidden = false;
+  film.hidden = false;
+  document.body.classList.add('on-intro');
+  if (!reduceMotion) video.play().catch(() => {});
+  const introSize = new ResizeObserver(() => {
+    document.documentElement.style.setProperty('--intro-height', `${intro.offsetHeight}px`);
+  });
+  introSize.observe(intro);
   scene.setMode('composer');
 
   PAPERS.forEach((item) => {
@@ -74,7 +85,7 @@ export function mountComposer(scene) {
 
   message.addEventListener('input', () => {
     window.clearTimeout(timer);
-    timer = window.setTimeout(render, 90);
+    timer = window.setTimeout(render, TYPE_MS);
     if (message.value.trim()) status.textContent = '';
     refreshNav();
   });
@@ -164,18 +175,23 @@ export function mountComposer(scene) {
     start.disabled = true;
     step = 'write';
     intro.classList.add('leaving');
-    await scene.playTo(0, reduceMotion ? 0 : 600);
+    film.classList.add('leaving');
+    await wait(reduceMotion ? 0 : 600);
     intro.hidden = true;
-    fold = FOLDS[0].id;
+    film.hidden = true;
+    video.pause();
+    introSize.disconnect();
     markFolds();
-    render();
     composer.hidden = false;
     showStep('write');
+    scene.snapFrame();
+    document.body.classList.remove('on-intro');
     if (window.matchMedia('(pointer: fine)').matches) message.focus();
   });
 
   render();
-  previewFold();
+  FOLDS.forEach((item) => scene.prepare(item.id));
+  scene.playTo(0, 0);
 
   function goTo(next) {
     if (busy || next === step) return;

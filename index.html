@@ -3,31 +3,25 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Letterlocking: send a locked letter</title>
+  <title>Locked letters, unlocked</title>
 </head>
 <body>
   <canvas id="view"></canvas>
 
+  <figure id="intro-film" class="intro-film" hidden>
+    <video src="/media/landing-fold.mp4" poster="/media/landing-fold.jpg" muted loop playsinline preload="auto" disablepictureinpicture aria-label="A historic locked letter unfolding and folding back up"></video>
+  </figure>
+
   <section id="intro" class="float intro" hidden>
-    <p class="eyebrow">Letterlocking</p>
-    <h1 class="intro-title">Send a letter that locks itself</h1>
-    <p class="intro-copy">Letterlocking is the craft of folding and securing a sheet of paper so it becomes its own envelope. Since the 13th century, folds, tucks and slits have kept letters from being read without leaving a trace.</p>
-    <p class="intro-copy">Write a virtual letter, lock it with a historic fold, and send it as a link. Your reader has to unfold it to read it.</p>
-    <aside class="archive" aria-label="Source">
-      <p class="archive-ref">Unlocking History Research Group</p>
-      <p class="archive-copy">Each lock here follows one documented by the group, who have catalogued over 7,000 letters from more than 70 archives and give every technique a UH number.</p>
-      <p class="archive-links">
-        <a href="https://letterlocking.org/what-is-letterlocking" target="_blank" rel="noopener">What is letterlocking</a>
-        <a href="https://letterlocking.org/catalog-of-uh-numbers" target="_blank" rel="noopener">UH catalogue</a>
-      </p>
-    </aside>
+    <h1 class="intro-title">Locked letters, <em>unlocked</em></h1>
+    <p class="intro-copy">For seven centuries, letters were folded and tucked shut to become their own envelopes, guarding love notes and secrets alike. Lock yours with a historic fold and send it as a link for someone to unfold.</p>
     <div class="intro-actions">
-      <button type="button" id="start" class="primary">Lock a letter</button>
+      <button type="button" id="start" class="primary">Write a letter</button>
     </div>
+    <p class="intro-credit">Made by <a href="mailto:zhang.zhan@akqa.com">Zhang Zhan</a><br />Folds and footage from the <a href="https://letterlocking.org" target="_blank" rel="noopener">Unlocking History Research Group</a></p>
   </section>
 
   <section id="composer" class="float" hidden>
-    <p class="eyebrow">Its own envelope</p>
     <div class="step-count">
       <span id="step-index">Step 1 of 3</span>
       <span class="bars" aria-hidden="true"><i data-n="1" data-label="Message"></i><i data-n="2" data-label="Paper"></i><i data-n="3" data-label="Lock"></i></span>

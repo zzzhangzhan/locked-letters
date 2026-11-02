@@ -1,4 +1,5 @@
-const TEX = 1400;
+// Phones redraw and upload the sheet on every keystroke, so they get a smaller one.
+const TEX = window.matchMedia('(pointer: coarse)').matches ? 1024 : 1400;
 
 export const PRESETS = [
   { id: 'cream', name: 'Cream', back: '#e4d8c4' },
@@ -192,24 +193,30 @@ function paintMessage(ctx, width, height, text, veil) {
   }
 }
 
+// The largest size the text fits at, found by halving the range.
 function fitText(ctx, text, box) {
-  let size = Math.floor(Math.min(box.w * 0.2, box.h * 0.08));
   const min = 18;
-  let lines = [];
-  let lineHeight = size;
-  while (size >= min) {
+  const layout = (size) => {
     ctx.font = `${size}px "Iowan Old Style", Palatino, Georgia, serif`;
-    lines = wrapText(ctx, text, box.w);
-    lineHeight = Math.round(size * 1.38);
-    if (layoutHeight(lines.length, lineHeight, box) <= box.h) break;
-    size -= 2;
-  }
-  return {
-    font: `${Math.max(size, min)}px "Iowan Old Style", Palatino, Georgia, serif`,
-    lines,
-    lineHeight,
-    usedHeight: layoutHeight(lines.length, lineHeight, box),
+    const lines = wrapText(ctx, text, box.w);
+    const lineHeight = Math.round(size * 1.38);
+    return { size, lines, lineHeight, usedHeight: layoutHeight(lines.length, lineHeight, box) };
   };
+  let lo = min;
+  let hi = Math.max(min, Math.floor(Math.min(box.w * 0.2, box.h * 0.08)));
+  let best = layout(hi);
+  if (best.usedHeight > box.h) {
+    best = layout(lo);
+    while (hi - lo > 1) {
+      const mid = Math.floor((lo + hi) / 2);
+      const tried = layout(mid);
+      if (tried.usedHeight <= box.h) {
+        lo = mid;
+        best = tried;
+      } else hi = mid;
+    }
+  }
+  return { ...best, font: `${best.size}px "Iowan Old Style", Palatino, Georgia, serif` };
 }
 
 function layoutHeight(lineCount, lineHeight, box) {

@@ -197,7 +197,10 @@ function paguSpec() {
 
 const LAYER_GAP = 0.005;
 const EPS = 1e-6;
-const CELL = 0.025;
+// Phones reshape every vertex each frame far slower, so they get a lighter
+// mesh: a coarser grid and fewer rows along each edge.
+const LIGHT_MESH = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches;
+const CELL = LIGHT_MESH ? 0.032 : 0.025;
 const SEAM_BAND = 0.04;
 // How steeply paper eased toward a crease drapes past the edge of a layer
 // under it (height per unit across the sheet).
@@ -531,7 +534,7 @@ function foldPieces({ w, h, lines: specLines, phases }) {
 // run along the inside of every edge, so the roll of a tightening crease is
 // built from strips along it rather than from cells cut across it at random,
 // which would show as a saw-tooth along the folded edge.
-const EDGE_ROWS = [0.002, 0.005, 0.01, 0.017, 0.026, 0.037, 0.05];
+const EDGE_ROWS = LIGHT_MESH ? [0.002, 0.007, 0.017, 0.032, 0.05] : [0.002, 0.005, 0.01, 0.017, 0.026, 0.037, 0.05];
 
 function meshPieces(pieces) {
   const positions = [];
@@ -1035,25 +1038,44 @@ function buildSheet(spec, materials) {
   // just after it turns it, so later folds carry the layers round with the
   // paper instead of lifting them straight up off a curled flap. A fold turns
   // its flap's earlier height over with it, so its rise makes up for that.
-  function place(v, out, stacked = false, normal = null) {
+  // With a `memo`, the vertex picks up from the state saved before phase
+  // `memo.from` instead of the flat sheet, and saves its state before phase
+  // `memo.at` for the next call.
+  const phaseHinge = phases.map((phase) => hinges[phase.fold]);
+  const phaseBow = phases.map((phase) => bows[phase.fold]);
+  function place(v, out, stacked = false, normal = null, memo = null) {
     const piece = pieces[owner[v]];
     const row = v * (P + 1);
     let height = stacked ? zs[row] : 0;
-    out.set(rest[v * 2], rest[v * 2 + 1], height);
-    normal?.set(0, 0, 1);
-    for (let k = 0; k < P; k++) {
+    let from = 0;
+    if (memo && memo.from > 0) {
+      from = memo.from;
+      out.fromArray(memo.pos, v * 3);
+      normal?.fromArray(memo.nor, v * 3);
+      height = memo.height[v];
+    } else {
+      out.set(rest[v * 2], rest[v * 2 + 1], height);
+      normal?.set(0, 0, 1);
+    }
+    for (let k = from; k <= P; k++) {
+      if (memo && k === memo.at) {
+        out.toArray(memo.pos, v * 3);
+        normal?.toArray(memo.nor, v * 3);
+        memo.height[v] = height;
+      }
+      if (k === P) break;
       const b = bends[k];
       if (b.angle === 0) continue;
-      const id = phases[k].fold;
-      if (b.curl !== 0 && piece.moves[k]) {
-        const h = hinges[id];
+      const moves = piece.moves[k];
+      if (b.curl !== 0 && moves) {
+        const h = phaseHinge[k];
         const fromCrease = (out.x - h.px) * h.nx + (out.y - h.py) * h.ny;
         const curl = b.curl * smooth(THREE.MathUtils.clamp(fromCrease / CURL_FADE, 0, 1));
-        if (Math.abs(curl) > 1e-6) bend(out, bows[id], curl, CURL_SPAN / Math.abs(curl), 0, true, normal);
+        if (Math.abs(curl) > 1e-6) bend(out, phaseBow[k], curl, CURL_SPAN / Math.abs(curl), 0, true, normal);
       }
       const wrap = nearCrease[v * P + k];
-      const turned = wrap || piece.moves[k]
-        ? bend(out, hinges[id], b.angle, b.radius, b.sag, Boolean(wrap), normal)
+      const turned = wrap || moves
+        ? bend(out, phaseHinge[k], b.angle, b.radius, b.sag, Boolean(wrap), normal)
         : 0;
       if (!stacked) continue;
       // The turn lays a layer's height over to the flap's far side; the
@@ -1202,6 +1224,16 @@ function buildSheet(spec, materials) {
     return THREE.MathUtils.lerp(curlCurves[k][i], curlCurves[k][i + 1], x - i);
   };
 
+  const memos = [0, 1].map(() => ({
+    from: 0,
+    at: 0,
+    pos: new Float32Array(count * 3),
+    nor: new Float32Array(count * 3),
+    height: new Float32Array(count),
+  }));
+  let lastState = [];
+  let shaped = false;
+
   function setProgress(t) {
     const at = clamp(t) * total;
     const amounts = spans.map(([from, to]) => smooth(clamp((at - from) / (to - from))));
@@ -1220,6 +1252,17 @@ function buildSheet(spec, materials) {
       }
     });
 
+    // Phases before the first one that moved since the last call place every
+    // vertex the same as then, so each pass resumes from where they left it.
+    const state = bends.flatMap((b, k) => [b.angle, b.radius, b.sag, b.curl, layering[k]]);
+    let changed = 0;
+    while (changed < P && state.slice(changed * 5, changed * 5 + 5).every((value, i) => value === lastState[changed * 5 + i])) {
+      changed++;
+    }
+    lastState = state;
+    if (changed === P && shaped) return;
+    shaped = true;
+
     const out = positionAttr.array;
     // Shade by the paper's folded shape alone: the layer heights ramp where
     // pieces meet, and those ramps would show as smears under raking light.
@@ -1228,8 +1271,11 @@ function buildSheet(spec, materials) {
     // edge in steps.
     const normals = normalAttr.array;
     const lay = (stacked) => {
+      const memo = memos[stacked ? 1 : 0];
+      memo.from = memo.at <= changed ? memo.at : 0;
+      memo.at = changed;
       for (let v = 0; v < count; v++) {
-        place(v, point, stacked, stacked ? null : facing);
+        place(v, point, stacked, stacked ? null : facing, memo);
         out[v * 3] = point.x - w / 2;
         out[v * 3 + 1] = point.y - h / 2;
         out[v * 3 + 2] = point.z;
