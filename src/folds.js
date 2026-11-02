@@ -1,27 +1,20 @@
 import * as THREE from 'three';
 
-const FOLD_ANGLE = Math.PI * 0.992;
-
+// `catalog`, where set, is the fold's own page in the UH catalogue.
 export const FOLDS = [
   {
-    id: 'trifold',
-    name: 'Tri-fold',
-    blurb: 'Bottom folds up, then the top closes over it.',
-  },
-  {
     id: 'gate',
-    name: 'Gate fold',
-    blurb: 'The wings fold in, one over the other.',
-  },
-  {
-    id: 'locked',
-    name: 'Locked square',
-    blurb: 'Four corners fold in and cover the writing.',
+    name: 'Closed gatefold',
+    blurb: 'Both side edges fold to the center like two gate doors swinging shut, then the sheet folds in half so all four panels stack.',
+    uh: 'UH0115',
+    video: 'https://www.youtube.com/watch?v=BlNS6KBeqoA',
   },
   {
     id: 'pagu',
     name: 'Pagu hexagon',
-    blurb: 'UH6104: corners and edges fold in, then a tip tucks into the pocket.',
+    blurb: 'Corners and edges fold into a hexagon, then a tip tucks into its own pocket to lock it shut.',
+    uh: 'UH6104',
+    video: 'https://www.youtube.com/watch?v=ZGNSWfi0UmI',
   },
 ];
 
@@ -31,432 +24,1258 @@ export function sheetSize(fold) {
   return { w: h * (8.5 / 11), h };
 }
 
+// Teaches a standard material the rolled edges of pressed folds, read from the
+// sheet's `rim` attribute: the way to the nearest folded edge (scaled by how
+// pressed it is) and the distance to it. Given the back's color, the face also
+// takes it on where the sheet's `shade` attribute says, so a tip bending back
+// against its flap's turn doesn't flash its other side.
+export function rollEdges(material, backColor = null) {
+  material.onBeforeCompile = (shader) => {
+    if (backColor) shader.uniforms.backTint = { value: backColor };
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute vec4 rim;\nattribute float shade;\nvarying vec3 vRimDir;\nvarying float vRimDist;\nvarying float vShade;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvRimDir = normalMatrix * rim.xyz;\nvRimDist = rim.w;\nvShade = shade;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>\nvarying vec3 vRimDir;\nvarying float vRimDist;\nvarying float vShade;${backColor ? '\nuniform vec3 backTint;' : ''}`)
+      .replace('#include <map_fragment>', backColor
+        ? '#include <map_fragment>\ndiffuseColor.rgb = mix(diffuseColor.rgb, backTint, vShade);'
+        : '#include <map_fragment>')
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+      {
+        float pressed = length(vRimDir);
+        float t = 1.0 - clamp(vRimDist / ${RIM_WIDTH.toFixed(4)}, 0.0, 1.0);
+        vec3 edge = vRimDir - dot(vRimDir, normal) * normal;
+        if (pressed > 1e-3 && t > 0.0 && dot(edge, edge) > 1e-8) {
+          float turn = ${RIM_TURN.toFixed(4)} * min(pressed, 1.0) * t * t;
+          normal = normalize(normal * cos(turn) + normalize(edge) * sin(turn));
+        }
+      }`);
+  };
+  material.customProgramCacheKey = () => (backColor ? 'rolled-edges-tinted' : 'rolled-edges');
+  material.needsUpdate = true;
+  return material;
+}
+
 export function buildFold(id, materials) {
-  if (id === 'gate') return buildGate(materials);
-  if (id === 'locked') return buildLocked(materials);
-  if (id === 'pagu') return buildPagu(materials);
-  return buildTrifold(materials);
+  if (id === 'gate') return buildSheet(gateSpec(), materials);
+  if (id === 'locked') return buildSheet(lockedSpec(), materials);
+  if (id === 'pagu') return buildSheet(paguSpec(), materials);
+  return buildSheet(trifoldSpec(), materials);
 }
 
-function buildTrifold(materials) {
+// The fold flattened for a top-down diagram: each piece of the sheet with its
+// placement and stack height after every phase (index 0 is the open sheet).
+export function foldPlan(id) {
+  const spec = { gate: gateSpec, locked: lockedSpec, pagu: paguSpec }[id]?.() ?? trifoldSpec();
+  const { lines, pieces } = foldPieces(spec);
+  const steps = spec.phases.map((phase) => lines[phase.fold]);
+  return {
+    w: spec.w,
+    h: spec.h,
+    phases: spec.phases.map((phase, k) => ({ weight: phase.weight, line: steps[k] })),
+    pieces: pieces.map((piece) => {
+      const maps = [[1, 0, 0, 1, 0, 0]];
+      piece.moves.forEach((moving, k) => {
+        maps.push(moving ? composeMap(reflectMap(steps[k]), maps[k]) : maps[k]);
+      });
+      return { poly: piece.poly, moves: piece.moves, maps, z: piece.z };
+    }),
+  };
+}
+
+// Every fold is a list of phases over crease lines, in world units with the
+// sheet's bottom-left corner at the origin and y up. A line's normal points at
+// the side that turns over; every fold takes all layers on that side.
+const r = Math.SQRT1_2;
+
+function trifoldSpec() {
   const { w, h } = sheetSize('trifold');
-  const band = h / 3;
-  const root = new THREE.Group();
-  const flaps = [];
-
-  addRect(root, materials, {
-    x0: -w / 2,
-    y0: -band / 2,
-    x1: w / 2,
-    y1: band / 2,
-    originX: 0,
-    originY: 0,
-    sheetW: w,
-    sheetH: h,
-    order: 0,
-  });
-
-  flaps.push(makeFlap(root, materials, {
-    hinge: { x: 0, y: -band / 2 },
-    axis: 'x',
-    direction: -1,
-    lift: 0.018,
-    order: 1,
-    x0: -w / 2,
-    y0: -band,
-    x1: w / 2,
-    y1: 0,
-    originX: 0,
-    originY: -band / 2,
-    sheetW: w,
-    sheetH: h,
-  }));
-
-  flaps.push(makeFlap(root, materials, {
-    hinge: { x: 0, y: band / 2 },
-    axis: 'x',
-    direction: 1,
-    lift: 0.042,
-    order: 2,
-    x0: -w / 2,
-    y0: 0,
-    x1: w / 2,
-    y1: band,
-    originX: 0,
-    originY: band / 2,
-    sheetW: w,
-    sheetH: h,
-  }));
-
-  return { root, setProgress: (t) => applyFlaps(flaps, t) };
+  return {
+    w,
+    h,
+    lines: {
+      bottom: { p: [0, h / 3], d: [1, 0], n: [0, -1] },
+      top: { p: [0, (2 * h) / 3], d: [1, 0], n: [0, 1] },
+    },
+    phases: [{ fold: 'bottom', weight: 1 }, { fold: 'top', weight: 1 }],
+  };
 }
 
-function buildGate(materials) {
+// Closed gatefold (UH0115). Both side edges fold to the center like two gate
+// doors, stopping short of it by the gap so neither crosses the middle crease,
+// then the sheet folds in half there and all four panels stack.
+const GATE_GAP = 0.006;
+
+function gateSpec() {
   const { w, h } = sheetSize('gate');
-  const band = w / 3;
-  const root = new THREE.Group();
-  const flaps = [];
-
-  addRect(root, materials, {
-    x0: -band / 2,
-    y0: -h / 2,
-    x1: band / 2,
-    y1: h / 2,
-    originX: 0,
-    originY: 0,
-    sheetW: w,
-    sheetH: h,
-    order: 0,
-  });
-
-  flaps.push(makeFlap(root, materials, {
-    hinge: { x: -band / 2, y: 0 },
-    axis: 'y',
-    direction: 1,
-    lift: 0.018,
-    order: 1,
-    x0: -band,
-    y0: -h / 2,
-    x1: 0,
-    y1: h / 2,
-    originX: -band / 2,
-    originY: 0,
-    sheetW: w,
-    sheetH: h,
-  }));
-
-  flaps.push(makeFlap(root, materials, {
-    hinge: { x: band / 2, y: 0 },
-    axis: 'y',
-    direction: -1,
-    lift: 0.042,
-    order: 2,
-    x0: 0,
-    y0: -h / 2,
-    x1: band,
-    y1: h / 2,
-    originX: band / 2,
-    originY: 0,
-    sheetW: w,
-    sheetH: h,
-  }));
-
-  return { root, setProgress: (t) => applyFlaps(flaps, t) };
+  const gap = GATE_GAP * w;
+  return {
+    w,
+    h,
+    lines: {
+      left: { p: [w / 4 - gap / 2, 0], d: [0, 1], n: [-1, 0] },
+      right: { p: [(3 * w) / 4 + gap / 2, 0], d: [0, 1], n: [1, 0] },
+      middle: { p: [w / 2, 0], d: [0, 1], n: [1, 0] },
+    },
+    phases: [
+      { fold: 'left', weight: 1 },
+      { fold: 'right', weight: 1 },
+      { fold: 'middle', weight: 1.2 },
+    ],
+  };
 }
 
-function buildLocked(materials) {
+function lockedSpec() {
   const { w } = sheetSize('locked');
   const half = w / 2;
-  const verts = [
-    [-half, 0],
-    [0, half],
-    [half, 0],
-    [0, -half],
-    [-half, half],
-    [half, half],
-    [half, -half],
-    [-half, -half],
-  ];
-  const positions = [];
-  const uvs = [];
-  verts.forEach(([x, y]) => {
-    positions.push(x, y, 0);
-    uvs.push((x + half) / w, (y + half) / w);
-  });
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-  geometry.setIndex([
-    0, 2, 1,
-    0, 3, 2,
-    0, 1, 4,
-    1, 2, 5,
-    2, 3, 6,
-    3, 0, 7,
-  ]);
-  geometry.computeVertexNormals();
-
-  const rest = Float32Array.from(geometry.getAttribute('position').array);
-  const corners = [
-    { tip: 4, a: 0, b: 1 },
-    { tip: 5, a: 1, b: 2 },
-    { tip: 6, a: 2, b: 3 },
-    { tip: 7, a: 3, b: 0 },
-  ].map((corner, index) => ({ ...corner, lift: 0.02 + index * 0.016, sign: foldSign(rest, corner) }));
-
-  const root = new THREE.Group();
-  const front = new THREE.Mesh(geometry, materials.front);
-  const back = new THREE.Mesh(geometry, materials.back);
-  root.add(front, back);
-  const origin = new THREE.Vector3();
-  const axis = new THREE.Vector3();
-  const point = new THREE.Vector3();
-  const quat = new THREE.Quaternion();
-
-  function setProgress(t) {
-    const progress = THREE.MathUtils.clamp(t, 0, 1);
-    const attr = geometry.getAttribute('position');
-    attr.array.set(rest);
-    corners.forEach((corner, index) => {
-      const amount = smooth(segment(progress, index, corners.length));
-      if (amount === 0) return;
-      origin.set(rest[corner.a * 3], rest[corner.a * 3 + 1], 0);
-      axis.set(rest[corner.b * 3] - origin.x, rest[corner.b * 3 + 1] - origin.y, 0).normalize();
-      point.set(rest[corner.tip * 3], rest[corner.tip * 3 + 1], 0);
-      quat.setFromAxisAngle(axis, corner.sign * amount * FOLD_ANGLE);
-      point.sub(origin).applyQuaternion(quat).add(origin);
-      attr.setXYZ(corner.tip, point.x, point.y, point.z + corner.lift * amount);
-    });
-    attr.needsUpdate = true;
-    geometry.computeVertexNormals();
-  }
-
-  return { root, setProgress };
+  return {
+    w,
+    h: w,
+    lines: {
+      tl: { p: [0, half], d: [r, r], n: [-r, r] },
+      tr: { p: [half, w], d: [r, -r], n: [r, r] },
+      br: { p: [w, half], d: [-r, -r], n: [r, -r] },
+      bl: { p: [half, 0], d: [-r, r], n: [-r, -r] },
+    },
+    phases: ['tl', 'tr', 'br', 'bl'].map((fold) => ({ fold, weight: 1 })),
+  };
 }
 
-// Pagu hexagon (UH6104): a small top hem, the bottom-left and top-right
-// corners, then the bottom and top edges, the left point, the right point,
-// and a tip tucked into the pocket.
-function buildPagu(materials) {
+// Pagu hexagon (UH6104). Crease positions are measured off a refolded sheet,
+// as fractions of its side, as is the slot left between the two flaps.
+const PAGU = { hem: 0.85, corner: 0.53, right: 1.36, bottom: 0.175, slot: 0.008 };
+
+function paguSpec() {
   const S = sheetSize('pagu').w;
-  const steps = paguSteps();
-  const pieces = carvePagu(steps);
-  const positions = [];
-  const uvs = [];
-  const indices = [];
-  const masks = [];
-  pieces.forEach((piece) => {
-    const base = positions.length / 3;
-    piece.poly.forEach((vertex) => {
-      positions.push((vertex.x - 0.5) * S, (vertex.y - 0.5) * S, 0);
-      uvs.push(vertex.x, vertex.y);
-      masks.push(piece.mask);
-    });
-    for (let i = 1; i < piece.poly.length - 1; i += 1) {
-      indices.push(base, base + i, base + i + 1);
+  const { hem, corner, right, bottom, slot } = PAGU;
+  const top = (corner + hem) / 2;
+  const middle = top - bottom;
+  // The top-left flap's crease sits back by the slot, so its edge stops that
+  // far short of the middle; the other flap's edge meets the top band's corner.
+  const lean = slot;
+  const line = (p, d, n) => ({ p: [p[0] * S, p[1] * S], d, n });
+  return {
+    w: S,
+    h: S,
+    lines: {
+      hem: line([0, hem], [1, 0], [0, 1]),
+      corner: line([0, corner], [r, -r], [-r, -r]),
+      right: line([1, right - 1], [r, -r], [r, r]),
+      bottom: line([0, bottom], [1, 0], [0, -1]),
+      top: line([0, top], [1, 0], [0, 1]),
+      tl: line([0, bottom + lean], [r, r], [-r, r]),
+      br: line([middle, bottom], [r, r], [r, -r]),
+    },
+    phases: [
+      { fold: 'hem', weight: 1 },
+      { fold: 'corner', weight: 1 },
+      { fold: 'right', weight: 1 },
+      { fold: 'bottom', weight: 1 },
+      { fold: 'top', weight: 1 },
+      // Each flap's tip, the part landing past a band's edge, slides under that
+      // band. The top-left flap's tip goes in through the bottom band's slanted
+      // end, left there by the corner fold, square to its own crease.
+      {
+        fold: 'tl',
+        weight: 1.3,
+        tuck: 'bottom',
+        tip: line([corner - 2 * bottom, 0], [r, r], [r, -r]),
+      },
+      // Splitting at the middle lets the bottom band sit over the corner on one
+      // side and under the flap on the other. Right of the middle the top band's
+      // open edge runs at 45 degrees, parallel to the crease.
+      {
+        fold: 'br',
+        weight: 1.4,
+        tuck: 'top',
+        cut: line([middle, 0], [0, 1], [1, 0]),
+        tip: line([middle, corner], [r, r], [-r, r]),
+      },
+    ],
+  };
+}
+
+const LAYER_GAP = 0.005;
+const EPS = 1e-6;
+const CELL = 0.025;
+const SEAM_BAND = 0.04;
+// How steeply paper eased toward a crease drapes past the edge of a layer
+// under it (height per unit across the sheet).
+const DRAPE = 0.5;
+// How far back from a tucked tip its flap slopes down to meet it.
+const TUCK_RAMP = 0.4;
+// The rolled edge of a pressed fold: how far in from the crease it shades as
+// turning, how far (radians) it turns at the crease, and how far through its
+// swing (a share of a half turn) a fold starts to press.
+const RIM_WIDTH = 0.022;
+const RIM_TURN = 1.2;
+const RIM_FROM = 0.8;
+// How fast (per whole swing) a tip takes on its flap's face.
+const TIP_SHADE = 2.5;
+// How far into the next phase each phase runs, so the hand never stops.
+const OVERLAP = 0.18;
+// Crease radius mid-swing and once pressed flat, and how much a moving flap
+// trails behind its crease (curvature per unit length at the steepest point).
+const BEND_RADIUS = 0.07;
+const CREASE_RADIUS = 0.0008;
+const SAG = 0.16;
+// Length of flap, ending at the tip line, that bows to point a tucking tip at
+// its slit, so the flap curves like paper held by its tip instead of kinking.
+// The bow fades out toward the crease, which holds the paper straight.
+const CURL_SPAN = 0.4;
+const CURL_FADE = 0.3;
+// Share of a tucking phase spent swinging the tip flat under the band once the
+// flap is down, and the part of the swing over which the tip bends to head for the slit.
+const SLIDE = 0.2;
+const AIM = [0.3, 0.75];
+// Where a tip aims once its flap is down: this far past the band's edge, and
+// this far below it.
+const SLIT_REACH = 0.2;
+const SLIT_DEPTH = 0.02;
+// Samples of a tip's bend over its flap's swing; how fast the bend may wind up
+// against the swing (a share of the flap's own turning); how fast it may let go
+// (its deepest bend per whole swing); the share of the swing it eases in over;
+// and how widely (as a share of the swing) it is smoothed.
+const CURL_SAMPLES = 96;
+const CURL_RATE = 0.3;
+const CURL_RELEASE = 3;
+// The least a tip bends at its deepest, and the least it is still bent as its
+// flap lands, so every tip visibly slides in.
+const CURL_PEAK = 1;
+const CURL_LAND = 0.6;
+const CURL_EASE_IN = 0.2;
+const CURL_SMOOTHING = 0.1;
+// Grid on which a bowing flap is kept above the paper it lands on, how far into
+// it the flap may still dip (a few layers, which the flap itself hides), and
+// how fast (radians per whole swing) its bend may give way to stay clear.
+const CLEAR_CELL = 0.02;
+const CLEAR_SLACK = 0.03;
+const CLEAR_RATE = 3;
+
+function reflectMap({ p, d }) {
+  const a = 2 * d[0] * d[0] - 1;
+  const b = 2 * d[0] * d[1];
+  const c = 2 * d[1] * d[1] - 1;
+  return [a, b, b, c, p[0] - a * p[0] - b * p[1], p[1] - b * p[0] - c * p[1]];
+}
+
+function composeMap(A, B) {
+  return [
+    A[0] * B[0] + A[1] * B[2],
+    A[0] * B[1] + A[1] * B[3],
+    A[2] * B[0] + A[3] * B[2],
+    A[2] * B[1] + A[3] * B[3],
+    A[0] * B[4] + A[1] * B[5] + A[4],
+    A[2] * B[4] + A[3] * B[5] + A[5],
+  ];
+}
+
+function applyMap(M, [x, y]) {
+  return [M[0] * x + M[1] * y + M[4], M[2] * x + M[3] * y + M[5]];
+}
+
+function polyArea(poly) {
+  let sum = 0;
+  poly.forEach(([x0, y0], i) => {
+    const [x1, y1] = poly[(i + 1) % poly.length];
+    sum += x0 * y1 - x1 * y0;
+  });
+  return Math.abs(sum) / 2;
+}
+
+function clipPoly(poly, values, sign) {
+  const out = [];
+  poly.forEach((point, i) => {
+    const j = (i + 1) % poly.length;
+    const a = values[i] * sign;
+    const b = values[j] * sign;
+    if (a >= 0) out.push(point);
+    if ((a > 0 && b < 0) || (a < 0 && b > 0)) {
+      const t = a / (a - b);
+      const next = poly[j];
+      out.push([point[0] + (next[0] - point[0]) * t, point[1] + (next[1] - point[1]) * t]);
     }
   });
+  return out;
+}
 
-  const rest = Float32Array.from(positions);
+// The stretch of a convex polygon lying on the zero line of `values`.
+function cutSegment(poly, values) {
+  const points = [];
+  poly.forEach((point, i) => {
+    const j = (i + 1) % poly.length;
+    const a = values[i];
+    const b = values[j];
+    if (a === 0) points.push(point);
+    if ((a > 0 && b < 0) || (a < 0 && b > 0)) {
+      const t = a / (a - b);
+      points.push([point[0] + (poly[j][0] - point[0]) * t, point[1] + (poly[j][1] - point[1]) * t]);
+    }
+  });
+  return points.length >= 2 ? [points[0], points[points.length - 1]] : null;
+}
+
+function polysOverlap(A, B) {
+  for (const poly of [A, B]) {
+    for (let i = 0; i < poly.length; i++) {
+      const [x0, y0] = poly[i];
+      const [x1, y1] = poly[(i + 1) % poly.length];
+      const len = Math.hypot(x1 - x0, y1 - y0);
+      if (len < EPS) continue;
+      const ax = (y0 - y1) / len;
+      const ay = (x1 - x0) / len;
+      const range = (pts) => pts.reduce(([lo, hi], [x, y]) => {
+        const s = x * ax + y * ay;
+        return [Math.min(lo, s), Math.max(hi, s)];
+      }, [Infinity, -Infinity]);
+      const [aLo, aHi] = range(A);
+      const [bLo, bHi] = range(B);
+      if (aHi - bLo < 1e-4 || bHi - aLo < 1e-4) return false;
+    }
+  }
+  return true;
+}
+
+// Whether a point lies inside a convex polygon, at least `margin` from its edges.
+function insideBy(poly, [x, y], margin) {
+  const turn = poly.reduce((sum, [x0, y0], i) => {
+    const [x1, y1] = poly[(i + 1) % poly.length];
+    return sum + x0 * y1 - x1 * y0;
+  }, 0) > 0 ? 1 : -1;
+  return poly.every(([x0, y0], i) => {
+    const [x1, y1] = poly[(i + 1) % poly.length];
+    const len = Math.hypot(x1 - x0, y1 - y0);
+    return len < EPS || (turn * ((x1 - x0) * (y - y0) - (y1 - y0) * (x - x0))) / len > margin;
+  });
+}
+
+function segmentDistance([px, py], [[ax, ay], [bx, by]]) {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len = dx * dx + dy * dy;
+  const t = len > 0 ? THREE.MathUtils.clamp(((px - ax) * dx + (py - ay) * dy) / len, 0, 1) : 0;
+  return Math.hypot(px - ax - dx * t, py - ay - dy * t);
+}
+
+// Whether two polygons share a stretch of boundary.
+function touching(a, b) {
+  return a.some(([px, py], i) => {
+    const [qx, qy] = a[(i + 1) % a.length];
+    const len = Math.hypot(qx - px, qy - py);
+    if (len < EPS) return false;
+    const dx = (qx - px) / len;
+    const dy = (qy - py) / len;
+    return b.some(([rx, ry], j) => {
+      const [sx, sy] = b[(j + 1) % b.length];
+      const off = (x, y) => Math.abs((x - px) * dy - (y - py) * dx);
+      if (off(rx, ry) > EPS * 10 || off(sx, sy) > EPS * 10) return false;
+      const r = (rx - px) * dx + (ry - py) * dy;
+      const s = (sx - px) * dx + (sy - py) * dy;
+      return Math.min(len, Math.max(r, s)) - Math.max(0, Math.min(r, s)) > EPS * 10;
+    });
+  });
+}
+
+// Splits the sheet along every crease and records, for each piece, which
+// phases turn it over and how high it sits in the stack after each phase, plus
+// where on the sheet each crease runs.
+function foldPieces({ w, h, lines: specLines, phases }) {
+  const lines = { ...specLines };
+  let pieces = [{ poly: [[0, 0], [w, 0], [w, h], [0, h]], map: [1, 0, 0, 1, 0, 0], moves: [], z: [0] }];
+  const creases = phases.map(() => []);
+  const folded = (piece) => piece.poly.map((point) => applyMap(piece.map, point));
+
+  // Cuts pieces along a line in folded space. With a flag, pieces on the
+  // normal's side get it set; `only` limits which pieces are cut, and cut
+  // segments on the sheet are pushed to `record`.
+  function split(line, flag, only = () => true, record = null) {
+    const next = [];
+    pieces.forEach((piece) => {
+      if (!only(piece)) {
+        next.push(piece);
+        return;
+      }
+      const values = folded(piece).map(([x, y]) => {
+        const s = line.n[0] * (x - line.p[0]) + line.n[1] * (y - line.p[1]);
+        return Math.abs(s) < EPS ? 0 : s;
+      });
+      if (values.every((s) => s <= 0)) {
+        next.push(piece);
+      } else if (values.every((s) => s >= 0)) {
+        if (flag) piece[flag] = true;
+        next.push(piece);
+      } else {
+        const segment = cutSegment(piece.poly, values);
+        if (record && segment) record.push(segment);
+        [1, -1].forEach((sign) => {
+          const poly = clipPoly(piece.poly, values, sign);
+          if (poly.length < 3 || polyArea(poly) < EPS) return;
+          const part = { ...piece, poly, moves: [...piece.moves], z: [...piece.z] };
+          if (flag) part[flag] = sign > 0;
+          next.push(part);
+        });
+      }
+    });
+    pieces = next;
+  }
+
+  phases.forEach((phase, k) => {
+    if (phase.cut) split(phase.cut, null);
+    const id = phase.fold;
+    split(lines[id], 'moving', undefined, creases[k]);
+    const reflect = reflectMap(lines[id]);
+    pieces.forEach((piece) => {
+      if (piece.moving) piece.map = composeMap(reflect, piece.map);
+      piece.moves.push(Boolean(piece.moving));
+    });
+    if (phase.tip) {
+      split(phase.tip, `tip_${id}`, (piece) => piece.moving);
+      // The curl hinge, where the band's edge line sat before the flap turned over.
+      const [x0, y0] = applyMap(reflect, phase.tip.p);
+      const [x1, y1] = applyMap(reflect, [phase.tip.p[0] + phase.tip.d[0], phase.tip.p[1] + phase.tip.d[1]]);
+      const n = [reflect[0] * phase.tip.n[0] + reflect[1] * phase.tip.n[1], reflect[2] * phase.tip.n[0] + reflect[3] * phase.tip.n[1]];
+      lines[`curl_${id}`] = { p: [x0, y0], d: [x1 - x0, y1 - y0], n };
+    }
+    if (phase.tuck) {
+      // Only the part of a tip that lands under the pocket's layers goes under
+      // them, so tips are split along those layers' outlines.
+      const kt = phases.findIndex((p) => p.fold === phase.tuck);
+      const flag = `tip_${id}`;
+      const bands = pieces.filter((piece) => !piece.moving && piece.moves[kt]).map(folded);
+      bands.forEach((shape) => {
+        const turn = shape.reduce((sum, [x0, y0], i) => {
+          const [x1, y1] = shape[(i + 1) % shape.length];
+          return sum + x0 * y1 - x1 * y0;
+        }, 0) > 0 ? 1 : -1;
+        shape.forEach((a, i) => {
+          const b = shape[(i + 1) % shape.length];
+          const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+          if (len < EPS) return;
+          const n = [((b[1] - a[1]) / len) * turn, ((a[0] - b[0]) / len) * turn];
+          split({ p: a, n }, null, (piece) => piece[flag] && polysOverlap(folded(piece), shape));
+        });
+      });
+      // The phase a tip goes under in.
+      pieces.forEach((piece) => {
+        if (piece[flag] && bands.some((shape) => polysOverlap(folded(piece), shape))) piece.tucked = k;
+      });
+    }
+
+    // Stack order: moving layers flip over and land on top, except where a
+    // tucked flap slides under the layers that form the pocket.
+    const shapes = pieces.map(folded);
+    const below = pieces.map(() => []);
+    pieces.forEach((a, i) => {
+      pieces.forEach((b, j) => {
+        if (j <= i || !polysOverlap(shapes[i], shapes[j])) return;
+        let aOnTop;
+        if (a.moving && b.moving) aOnTop = a.z[k] < b.z[k];
+        else if (a.moving || b.moving) {
+          const mover = a.moving ? a : b;
+          const other = a.moving ? b : a;
+          const pocket = phase.tuck && other.moves[phases.findIndex((p) => p.fold === phase.tuck)];
+          aOnTop = (mover === a) !== Boolean(pocket);
+        } else aOnTop = a.z[k] > b.z[k];
+        if (aOnTop) below[i].push(j);
+        else below[j].push(i);
+      });
+    });
+    const level = pieces.map(() => null);
+    const visiting = new Set();
+    const depth = (i) => {
+      if (level[i] !== null) return level[i];
+      if (visiting.has(i)) throw new Error(`Fold layers loop at phase ${k}`);
+      visiting.add(i);
+      level[i] = below[i].reduce((max, j) => Math.max(max, depth(j) + 1), 0);
+      visiting.delete(i);
+      return level[i];
+    };
+    const z = pieces.map((_, i) => depth(i) * LAYER_GAP);
+
+    // Pieces of one flat stretch of paper, split only by tip or pocket lines,
+    // rise level with each other wherever nothing above holds them down, so
+    // the stretch doesn't step where nothing in the paper changes. A tucking
+    // tip stays down with the pocket it heads into, even where it lands past
+    // the band's end, so the band's edge lies over it rather than under.
+    const above = pieces.map(() => []);
+    below.forEach((list, i) => list.forEach((j) => above[j].push(i)));
+    const tips = phases.slice(0, k + 1).filter((p) => p.tuck).map((p) => `tip_${p.fold}`);
+    const flush = pieces.map((a) => pieces.map((b) => a !== b
+      && a.moves.every((m, q) => m === b.moves[q])
+      && tips.every((flag) => Boolean(a[flag]) === Boolean(b[flag]))
+      && touching(a.poly, b.poly)));
+    for (let changed = true; changed; ) {
+      changed = false;
+      pieces.forEach((_, i) => {
+        const target = z.reduce((top, zj, j) => (flush[i][j] ? Math.max(top, zj) : top), z[i]);
+        const cap = above[i].reduce((low, j) => Math.min(low, z[j] - LAYER_GAP), Infinity);
+        const next = Math.min(target, cap);
+        if (next > z[i] + EPS) {
+          z[i] = next;
+          changed = true;
+        }
+      });
+    }
+    pieces.forEach((piece, i) => {
+      piece.z.push(z[i]);
+      delete piece.moving;
+    });
+  });
+
+  return { lines, pieces, creases };
+}
+
+// A grid clipped to each piece, so creases run exactly along triangle edges.
+// Pieces keep their own vertices (crisp shading at creases) but vertices at
+// the same spot on the sheet always land in the same place. Rows of vertices
+// run along the inside of every edge, so the roll of a tightening crease is
+// built from strips along it rather than from cells cut across it at random,
+// which would show as a saw-tooth along the folded edge.
+const EDGE_ROWS = [0.002, 0.005, 0.01, 0.017, 0.026, 0.037, 0.05];
+
+function meshPieces(pieces) {
+  const positions = [];
+  const indices = [];
+  const owner = [];
+  const spots = new Map();
+  const spotOf = [];
+  const corners = pieces.flatMap(({ poly }) => poly);
+  const sheet = [Math.min(...corners.map(([x]) => x)), Math.max(...corners.map(([x]) => x))];
+  const sheetY = [Math.min(...corners.map(([, y]) => y)), Math.max(...corners.map(([, y]) => y))];
+  // The sheet's own edges never roll round a crease.
+  const onBorder = ([x0, y0], [x1, y1]) => [sheet, sheetY].some((range, axis) => range.some((at) => (
+    Math.abs((axis ? y0 : x0) - at) < EPS && Math.abs((axis ? y1 : x1) - at) < EPS
+  )));
+  pieces.forEach((piece, pi) => {
+    const local = new Map();
+    const vertex = ([x, y]) => {
+      const key = `${Math.round(x * 1e5)},${Math.round(y * 1e5)}`;
+      if (local.has(key)) return local.get(key);
+      const id = owner.length;
+      positions.push(x, y);
+      owner.push(pi);
+      if (!spots.has(key)) spots.set(key, spots.size);
+      spotOf.push(spots.get(key));
+      local.set(key, id);
+      return id;
+    };
+    const turn = Math.sign(piece.poly.reduce((sum, [x0, y0], i) => {
+      const [x1, y1] = piece.poly[(i + 1) % piece.poly.length];
+      return sum + x0 * y1 - x1 * y0;
+    }, 0));
+    const rows = piece.poly.flatMap(([x0, y0], i) => {
+      const [x1, y1] = piece.poly[(i + 1) % piece.poly.length];
+      if (onBorder([x0, y0], [x1, y1])) return [];
+      const len = Math.hypot(x1 - x0, y1 - y0);
+      const nx = (-(y1 - y0) / len) * turn;
+      const ny = ((x1 - x0) / len) * turn;
+      return EDGE_ROWS.map((inset) => [nx, ny, -(nx * x0 + ny * y0) - inset]);
+    });
+    const xs = piece.poly.map(([x]) => x);
+    const ys = piece.poly.map(([, y]) => y);
+    const i0 = Math.floor(Math.min(...xs) / CELL - EPS);
+    const i1 = Math.ceil(Math.max(...xs) / CELL + EPS);
+    const j0 = Math.floor(Math.min(...ys) / CELL - EPS);
+    const j1 = Math.ceil(Math.max(...ys) / CELL + EPS);
+    for (let i = i0; i < i1; i++) {
+      for (let j = j0; j < j1; j++) {
+        let poly = piece.poly;
+        [[1, 0, -i * CELL], [-1, 0, (i + 1) * CELL], [0, 1, -j * CELL], [0, -1, (j + 1) * CELL]].forEach(([a, b, c]) => {
+          if (poly.length < 3) return;
+          poly = clipPoly(poly, poly.map(([x, y]) => {
+            const s = a * x + b * y + c;
+            return Math.abs(s) < EPS ? 0 : s;
+          }), 1);
+        });
+        if (poly.length < 3 || polyArea(poly) < 1e-9) continue;
+        let parts = [poly];
+        rows.forEach(([a, b, c]) => {
+          parts = parts.flatMap((part) => {
+            const values = part.map(([x, y]) => {
+              const s = a * x + b * y + c;
+              return Math.abs(s) < EPS ? 0 : s;
+            });
+            if (values.every((s) => s >= 0) || values.every((s) => s <= 0)) return [part];
+            return [clipPoly(part, values, 1), clipPoly(part, values, -1)];
+          });
+        });
+        parts.forEach((part) => {
+          if (part.length < 3 || polyArea(part) < 1e-10) return;
+          const ids = part.map(vertex);
+          for (let t = 1; t < ids.length - 1; t++) {
+            if (ids[0] !== ids[t] && ids[t] !== ids[t + 1] && ids[0] !== ids[t + 1]) indices.push(ids[0], ids[t], ids[t + 1]);
+          }
+        });
+      }
+    }
+  });
+  return { positions, indices, owner, spotOf, spotCount: spots.size };
+}
+
+function buildSheet(spec, materials) {
+  const { w, h, phases } = spec;
+  const { lines, pieces, creases } = foldPieces(spec);
+  const { positions: rest, indices, owner, spotOf, spotCount } = meshPieces(pieces);
+  const count = owner.length;
+  const P = phases.length;
+
+  const hinges = {};
+  Object.entries(lines).forEach(([id, { p, d, n }]) => {
+    const dl = Math.hypot(d[0], d[1]);
+    const nl = Math.hypot(n[0], n[1]);
+    hinges[id] = { px: p[0], py: p[1], ax: d[0] / dl, ay: d[1] / dl, nx: n[0] / nl, ny: n[1] / nl };
+  });
+
+  // Layer heights. Where pieces meet, each eases over a fixed band to the
+  // average of the pieces at the seam, so seams close without stair-stepping
+  // and the layers of a folded edge nest instead of crossing. Tucked tips lie
+  // flat under their band once tucked, so seams they share meet them at their
+  // height from then on; before that they ease like any other paper.
+  const tuckedAt = (piece, k) => piece.tucked !== undefined && k > piece.tucked;
+  const pinnedFrom = new Float32Array(spotCount).fill(Infinity);
+  for (let v = 0; v < count; v++) {
+    const { tucked } = pieces[owner[v]];
+    if (tucked !== undefined) pinnedFrom[spotOf[v]] = Math.min(pinnedFrom[spotOf[v]], tucked + 1);
+  }
+  const pinned = (spot, k) => k >= pinnedFrom[spot];
+  const seamZ = new Float32Array(spotCount * (P + 1));
+  const hits = new Uint16Array(spotCount * (P + 1));
+  const shared = new Uint16Array(spotCount);
+  for (let v = 0; v < count; v++) {
+    const spot = spotOf[v];
+    const piece = pieces[owner[v]];
+    shared[spot]++;
+    piece.z.forEach((z, k) => {
+      if (pinned(spot, k) && !tuckedAt(piece, k)) return;
+      hits[spot * (P + 1) + k]++;
+      seamZ[spot * (P + 1) + k] += z;
+    });
+  }
+  for (let i = 0; i < seamZ.length; i++) seamZ[i] /= hits[i] || 1;
+  const zs = new Float32Array(count * (P + 1));
+  const seams = pieces.map(() => []);
+  for (let v = 0; v < count; v++) {
+    if (shared[spotOf[v]] > 1) seams[owner[v]].push(v);
+  }
+  // Where the paper slips under a band's edge, it keeps its own height;
+  // easing it down would dent it along the slit.
+  for (let v = 0; v < count; v++) {
+    const piece = pieces[owner[v]];
+    const point = [rest[v * 2], rest[v * 2 + 1]];
+    // The nearest seam, and the nearest that no tucked tip pins.
+    let best = null;
+    let free = null;
+    piece.poly.forEach((a, i) => {
+      const edge = [a, piece.poly[(i + 1) % piece.poly.length]];
+      const d = segmentDistance(point, edge);
+      if (d >= SEAM_BAND || (best && free && d >= best.d && d >= free.d)) return;
+      const [[ax, ay], [bx, by]] = edge;
+      const len = Math.hypot(bx - ax, by - ay) || 1;
+      const t = THREE.MathUtils.clamp(((point[0] - ax) * (bx - ax) + (point[1] - ay) * (by - ay)) / (len * len), 0, 1);
+      const foot = [ax + (bx - ax) * t, ay + (by - ay) * t];
+      let spot = -1;
+      let gap = CELL * 0.75;
+      seams[owner[v]].forEach((u) => {
+        const g = Math.hypot(rest[u * 2] - foot[0], rest[u * 2 + 1] - foot[1]);
+        if (g < gap && segmentDistance([rest[u * 2], rest[u * 2 + 1]], edge) < EPS * 10) {
+          gap = g;
+          spot = spotOf[u];
+        }
+      });
+      if (spot < 0) return;
+      if (!best || d < best.d) best = { d, spot };
+      if (pinnedFrom[spot] === Infinity && (!free || d < free.d)) free = { d, spot };
+    });
+    piece.z.forEach((z, k) => {
+      const seam = best && pinned(best.spot, k) ? free : best;
+      const weight = seam && !tuckedAt(piece, k) ? 1 - seam.d / SEAM_BAND : 0;
+      zs[v * (P + 1) + k] = z + ((seam ? seamZ[seam.spot * (P + 1) + k] : z) - z) * weight;
+    });
+  }
+  // Once a tip is tucked, the rest of its flap slopes down to the tip's height
+  // over the stretch before the band's edge, so the edge lies over the flap
+  // rather than the flap riding over the edge. It never sinks into the paper
+  // under it.
+  const maps = pieces.map((piece) => phases.reduce((list, { fold }, k) => {
+    list.push(piece.moves[k] ? composeMap(reflectMap(lines[fold]), list[k]) : list[k]);
+    return list;
+  }, [[1, 0, 0, 1, 0, 0]]));
+  const members = pieces.map(() => []);
+  for (let v = 0; v < count; v++) members[owner[v]].push(v);
+  // Easing toward a crease can sink paper below another layer's folded edge
+  // tucked inside the fold, and that edge would show through. Eased paper
+  // stays a layer above whatever lies under it, draping down past its edge,
+  // though never above its own height, except over the pieces it meets,
+  // which it eases to. Whole spots rise together so seams hold.
+  const eased = new Uint8Array(count);
+  for (let v = 0; v < count; v++) {
+    const { poly } = pieces[owner[v]];
+    const point = [rest[v * 2], rest[v * 2 + 1]];
+    eased[v] = poly.some((a, i) => segmentDistance(point, [a, poly[(i + 1) % poly.length]]) < SEAM_BAND) ? 1 : 0;
+  }
+  const neighbours = pieces.map(() => new Set());
+  const bySpot = new Map();
+  for (let v = 0; v < count; v++) (bySpot.get(spotOf[v]) || bySpot.set(spotOf[v], []).get(spotOf[v])).push(v);
+  bySpot.forEach((list) => list.forEach((a) => list.forEach((b) => {
+    if (owner[a] !== owner[b]) neighbours[owner[a]].add(owner[b]);
+  })));
+  const reachOver = CELL;
+  for (let k = 1; k <= P; k++) {
+    const where = new Float32Array(count * 2);
+    const grid = new Map();
+    const cellOf = (gx, gy) => gx * 65536 + gy;
+    for (let v = 0; v < count; v++) {
+      const [x, y] = applyMap(maps[owner[v]][k], [rest[v * 2], rest[v * 2 + 1]]);
+      where[v * 2] = x;
+      where[v * 2 + 1] = y;
+      const key = cellOf(Math.floor(x / reachOver), Math.floor(y / reachOver));
+      (grid.get(key) || grid.set(key, []).get(key)).push(v);
+    }
+    // How far a point lies past a piece's edge, as folded: the drape runs
+    // from the edge itself, not from the piece's vertices, which a layer's
+    // edge passes over at uneven distances and would rise and fall between.
+    const shapes = pieces.map((piece, j) => piece.poly.map((point) => applyMap(maps[j][k], point)));
+    const pastEdge = (j, point) => (insideBy(shapes[j], point, -EPS)
+      ? 0
+      : Math.min(...shapes[j].map((a, n) => segmentDistance(point, [a, shapes[j][(n + 1) % shapes[j].length]]))));
+    const order = pieces.map((_, i) => i).sort((a, b) => pieces[a].z[k] - pieces[b].z[k]);
+    order.forEach((i) => {
+      if (tuckedAt(pieces[i], k) || pieces[i].tucked === k - 1) return;
+      const lift = new Map();
+      const under = pieces.map((piece, j) => j !== i && !neighbours[i].has(j) && piece.z[k] < pieces[i].z[k] - EPS);
+      const tops = new Map();
+      const top = (u) => {
+        const spot = spotOf[u];
+        let high = tops.get(spot);
+        if (high === undefined) {
+          high = bySpot.get(spot).reduce((most, w) => Math.max(most, zs[w * (P + 1) + k]), -Infinity);
+          tops.set(spot, high);
+        }
+        return high;
+      };
+      members[i].forEach((v) => {
+        if (!eased[v]) return;
+        const x = where[v * 2];
+        const y = where[v * 2 + 1];
+        const cx = Math.floor(x / reachOver);
+        const cy = Math.floor(y / reachOver);
+        let need = -Infinity;
+        const gaps = new Map();
+        for (let gx = cx - 1; gx <= cx + 1; gx++) {
+          for (let gy = cy - 1; gy <= cy + 1; gy++) {
+            const list = grid.get(cellOf(gx, gy));
+            if (!list) continue;
+            for (const u of list) {
+              const j = owner[u];
+              if (!under[j] || Math.hypot(where[u * 2] - x, where[u * 2 + 1] - y) >= reachOver) continue;
+              if (!gaps.has(j)) gaps.set(j, pastEdge(j, [x, y]));
+              need = Math.max(need, top(u) + LAYER_GAP - gaps.get(j) * DRAPE);
+            }
+          }
+        }
+        need = Math.min(need, pieces[i].z[k]);
+        if (need > zs[v * (P + 1) + k] + EPS) {
+          const spot = spotOf[v];
+          lift.set(spot, Math.max(lift.get(spot) ?? -Infinity, need));
+        }
+      });
+      lift.forEach((need, spot) => bySpot.get(spot).forEach((w) => {
+        zs[w * (P + 1) + k] = Math.max(zs[w * (P + 1) + k], need);
+      }));
+    });
+  }
+  phases.forEach(({ tuck }, kt) => {
+    if (!tuck) return;
+    const tipAt = new Map();
+    for (let v = 0; v < count; v++) {
+      if (pieces[owner[v]].tucked === kt) tipAt.set(spotOf[v], v);
+    }
+    // The whole flap slopes from the tip's edge, not just the pieces on it, so
+    // pieces of the flap that meet each other stay level where they meet.
+    const flap = pieces.map((piece) => piece.moves[kt] && piece.tucked === undefined);
+    const edge = [];
+    for (let v = 0; v < count; v++) {
+      if (flap[owner[v]] && tipAt.has(spotOf[v])) edge.push(v);
+    }
+    for (let k = kt + 1; k <= P; k++) {
+      const shapes = pieces.map((piece, i) => piece.poly.map((point) => applyMap(maps[i][k], point)));
+      const folded = (v) => applyMap(maps[owner[v]][k], [rest[v * 2], rest[v * 2 + 1]]);
+      const where = new Float32Array(count * 2);
+      const cells = pieces.map(() => new Map());
+      for (let v = 0; v < count; v++) {
+        const [x, y] = folded(v);
+        where[v * 2] = x;
+        where[v * 2 + 1] = y;
+        const key = `${Math.floor(x / CELL)},${Math.floor(y / CELL)}`;
+        const cell = cells[owner[v]];
+        (cell.get(key) || cell.set(key, []).get(key)).push(v);
+      }
+      // The vertex of piece `j` nearest `spot`, searching rings of cells out
+      // until no nearer one can be left.
+      const closestIn = (j, spot) => {
+        const cx = Math.floor(spot[0] / CELL);
+        const cy = Math.floor(spot[1] / CELL);
+        let best = null;
+        for (let ring = 0; ring * CELL < (best ? best.d + CELL : Infinity) && ring < 4 / CELL; ring++) {
+          for (let gx = cx - ring; gx <= cx + ring; gx++) {
+            for (let gy = cy - ring; gy <= cy + ring; gy++) {
+              if (Math.max(Math.abs(gx - cx), Math.abs(gy - cy)) !== ring) continue;
+              (cells[j].get(`${gx},${gy}`) || []).forEach((u) => {
+                const d = Math.hypot(where[u * 2] - spot[0], where[u * 2 + 1] - spot[1]);
+                if (!best || d < best.d) best = { d, u };
+              });
+            }
+          }
+        }
+        return best;
+      };
+      const order = pieces.map((_, i) => i).filter((i) => flap[i]).sort((a, b) => pieces[a].z[k] - pieces[b].z[k]);
+      order.forEach((i) => {
+        const under = pieces.map((_, j) => j).filter((j) => j !== i && pieces[j].z[k] < pieces[i].z[k] - EPS);
+        members[i].forEach((v) => {
+          const point = [rest[v * 2], rest[v * 2 + 1]];
+          let near = null;
+          edge.forEach((u) => {
+            const d = Math.hypot(rest[u * 2] - point[0], rest[u * 2 + 1] - point[1]);
+            if (d < TUCK_RAMP && (!near || d < near.d)) near = { d, u };
+          });
+          if (!near) return;
+          const at = v * (P + 1) + k;
+          const target = zs[tipAt.get(spotOf[near.u]) * (P + 1) + k];
+          let z = zs[at] + (target - zs[at]) * smooth(1 - near.d / TUCK_RAMP);
+          const spot = [where[v * 2], where[v * 2 + 1]];
+          under.forEach((j) => {
+            if (!insideBy(shapes[j], spot, CELL * 0.2)) return;
+            const closest = closestIn(j, spot);
+            z = Math.max(z, zs[closest.u * (P + 1) + k] + LAYER_GAP);
+          });
+          zs[at] = Math.min(zs[at], z);
+        });
+      });
+    }
+  });
+  // Vertices close enough to a crease, along the sheet, to wrap around it.
+  const reach = BEND_RADIUS * Math.PI + CELL;
+  const nearCrease = new Uint8Array(count * P);
+  for (let v = 0; v < count; v++) {
+    const point = [rest[v * 2], rest[v * 2 + 1]];
+    for (let k = 0; k < P; k++) {
+      if (creases[k].some((seg) => segmentDistance(point, seg) < reach)) nearCrease[v * P + k] = 1;
+    }
+  }
+  // Paper pressed flat still turns over its folded edges in a tight roll. Each
+  // vertex near a crease records how far it is from it and which way the edge
+  // lies (from a vertex of its piece well inside to one on the crease), and
+  // the material turns the surface toward the edge over the last stretch.
+  // Distance to a straight crease interpolates exactly, so the roll stays even
+  // however the grid meets it.
+  const leans = [];
+  const leanOf = new Int32Array(count).fill(-1);
+  const rimDist = new Float32Array(count).fill(Infinity);
+  const span = RIM_WIDTH + CELL * 1.5;
+  for (let k = 0; k < P; k++) {
+    pieces.forEach((piece, i) => {
+      const band = members[i]
+        .map((v) => ({ v, d: Math.min(...creases[k].map((seg) => segmentDistance([rest[v * 2], rest[v * 2 + 1]], seg)), Infinity) }))
+        .filter(({ d }) => d < span);
+      const edge = band.filter(({ d }) => d < EPS * 10);
+      const inner = band.reduce((far, entry) => (entry.d > far.d ? entry : far), { d: 0 });
+      if (!edge.length || inner.d < CELL * 0.5) return;
+      const nearest = edge.reduce((best, entry) => {
+        const g = Math.hypot(rest[entry.v * 2] - rest[inner.v * 2], rest[entry.v * 2 + 1] - rest[inner.v * 2 + 1]);
+        return g < best.g ? { v: entry.v, g } : best;
+      }, { v: -1, g: Infinity });
+      const lean = leans.length;
+      leans.push({ k, from: inner.v, to: nearest.v });
+      band.forEach(({ v, d }) => {
+        if (d >= rimDist[v]) return;
+        rimDist[v] = d;
+        leanOf[v] = lean;
+      });
+    });
+  }
+
+  const bows = {};
+  phases.forEach(({ fold, tip }) => {
+    if (!tip) return;
+    const h = hinges[`curl_${fold}`];
+    bows[fold] = { ...h, px: h.px - h.nx * CURL_SPAN, py: h.py - h.ny * CURL_SPAN };
+  });
+
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  const positionAttr = new THREE.Float32BufferAttribute(new Float32Array(count * 3), 3);
+  geometry.setAttribute('position', positionAttr);
+  const normalAttr = new THREE.Float32BufferAttribute(new Float32Array(count * 3), 3);
+  geometry.setAttribute('normal', normalAttr);
+  const uv = new Float32Array(count * 2);
+  for (let v = 0; v < count; v++) {
+    uv[v * 2] = rest[v * 2] / w;
+    uv[v * 2 + 1] = rest[v * 2 + 1] / h;
+  }
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  const rimAttr = new THREE.Float32BufferAttribute(new Float32Array(count * 4), 4);
+  for (let v = 0; v < count; v++) rimAttr.array[v * 4 + 3] = Math.min(rimDist[v], 1);
+  geometry.setAttribute('rim', rimAttr);
+  const shadeAttr = new THREE.Float32BufferAttribute(new Float32Array(count), 1);
+  geometry.setAttribute('shade', shadeAttr);
+  // How much of a tucking flap's bend each vertex takes, fading in from the
+  // crease as the bend does, so its face changes with it.
+  const tipPhase = new Int8Array(count).fill(-1);
+  const tipReach = new Float32Array(count);
+  phases.forEach(({ fold, tip }, k) => {
+    if (!tip) return;
+    const h = hinges[fold];
+    for (let v = 0; v < count; v++) {
+      if (!pieces[owner[v]].moves[k]) continue;
+      const [x, y] = applyMap(maps[owner[v]][k], [rest[v * 2], rest[v * 2 + 1]]);
+      tipPhase[v] = k;
+      tipReach[v] = smooth(THREE.MathUtils.clamp(((x - h.px) * h.nx + (y - h.py) * h.ny) / CURL_FADE, 0, 1));
+    }
+  });
   geometry.setIndex(indices);
-  geometry.computeVertexNormals();
 
   const root = new THREE.Group();
   root.add(new THREE.Mesh(geometry, materials.front), new THREE.Mesh(geometry, materials.back));
 
+  let start = 0;
+  const spans = phases.map(({ weight }) => {
+    const span = [start, start + weight];
+    start += weight * (1 - OVERLAP);
+    return span;
+  });
+  const total = spans[spans.length - 1][1];
+
   const point = new THREE.Vector3();
-  const origin = new THREE.Vector3();
-  const axis = new THREE.Vector3();
-  const probe = new THREE.Quaternion();
-  const hinges = steps.map(() => ({
-    origin: new THREE.Vector3(),
-    quat: new THREE.Quaternion(),
-    lift: 0,
-    active: false,
-  }));
-
-  function creaseMoved(index, u, v) {
-    let mask = 0;
-    for (let earlier = 0; earlier < index; earlier += 1) {
-      const step = steps[earlier];
-      if (step.keep(u, v) <= 0.004) continue;
-      if (step.requires && !step.requires(mask)) continue;
-      mask |= 1 << earlier;
+  const probe = new THREE.Vector3();
+  const along = new THREE.Vector3();
+  const across = new THREE.Vector3();
+  const target = new THREE.Vector3();
+  const facing = new THREE.Vector3();
+  const bends = phases.map(() => ({ angle: 0, radius: 0, sag: 0, curl: 0 }));
+  const layering = new Float32Array(P);
+  // Wraps the part of the sheet past a crease around a cylinder of `radius`
+  // that rolls up to `angle`, then runs on as a flap curving back by `sag`.
+  // `wrap` is false for layers that only lie near the crease after earlier
+  // folds; they turn with the flap instead of wrapping. Turns `normal` with
+  // the paper if given, and returns how far the point turned.
+  function bend(out, hinge, angle, radius, sag, wrap, normal) {
+    if (angle === 0) return 0;
+    const sign = angle < 0 ? -1 : 1;
+    const turn = Math.abs(angle);
+    const dx = out.x - hinge.px;
+    const dy = out.y - hinge.py;
+    const s = dx * hinge.nx + dy * hinge.ny;
+    if (wrap && s <= 0) return 0;
+    const t = dx * hinge.ax + dy * hinge.ay;
+    const lift = out.z * sign;
+    const arc = radius * turn;
+    let X;
+    let Z;
+    let turned = turn;
+    if (wrap && s < arc) {
+      // A layer raised above a tight crease would swing in over the paper
+      // beside it if it followed the circle; it keeps to the crease's side and
+      // still meets the flap where the arc ends.
+      turned = s / radius;
+      X = radius * Math.sin(turned) - lift * Math.sin(turn) * (turned / turn);
+      Z = radius - (radius - lift) * Math.cos(turned);
+    } else {
+      const u = s - arc;
+      const endX = radius * Math.sin(turn);
+      const endZ = radius * (1 - Math.cos(turn));
+      if (sag > 1e-6) {
+        turned = turn - sag * u;
+        X = endX + (Math.sin(turn) - Math.sin(turned)) / sag - lift * Math.sin(turned);
+        Z = endZ + (Math.cos(turned) - Math.cos(turn)) / sag + lift * Math.cos(turned);
+      } else {
+        X = endX + u * Math.cos(turn) - lift * Math.sin(turn);
+        Z = endZ + u * Math.sin(turn) + lift * Math.cos(turn);
+      }
     }
-    return mask;
+    out.set(hinge.px + t * hinge.ax + X * hinge.nx, hinge.py + t * hinge.ay + X * hinge.ny, Z * sign);
+    if (normal) {
+      const ns = normal.x * hinge.nx + normal.y * hinge.ny;
+      const na = normal.x * hinge.ax + normal.y * hinge.ay;
+      const nz = normal.z * sign;
+      const cos = Math.cos(turned);
+      const sin = Math.sin(turned);
+      const s2 = ns * cos - nz * sin;
+      normal.set(s2 * hinge.nx + na * hinge.ax, s2 * hinge.ny + na * hinge.ay, (ns * sin + nz * cos) * sign);
+    }
+    return turned;
   }
 
-  function place(u, v, mask, target) {
-    target.set((u - 0.5) * S, (v - 0.5) * S, 0);
-    hinges.forEach((hinge, index) => {
-      if (!hinge.active || (mask & (1 << index)) === 0) return;
-      target.sub(hinge.origin).applyQuaternion(hinge.quat).add(hinge.origin);
-      target.z += hinge.lift;
-    });
-    return target;
+  // Turn about the curl hinge that points the tip from the curl line into the
+  // slit, so it enters under the band's edge instead of cutting through the
+  // band. It aims at the edge while the flap is up, then further past it and
+  // just below the band as the flap comes down: aiming at the edge itself
+  // flips direction as the hinge lands on it.
+  function slitAngle(k) {
+    const id = phases[k].fold;
+    const hinge = hinges[id];
+    const curl = hinges[`curl_${id}`];
+    const { angle, radius, sag } = bends[k];
+    const at = (x, y, out) => bend(out.set(x, y, 0), hinge, angle, radius, sag, false);
+    at(curl.px, curl.py, point);
+    at(curl.px + curl.ny * 1e-3, curl.py - curl.nx * 1e-3, probe);
+    along.subVectors(probe, point).normalize();
+    at(curl.px + curl.nx * 1e-3, curl.py + curl.ny * 1e-3, probe);
+    across.subVectors(probe, point).normalize();
+    const tip = phases[k].tip;
+    const reach = (SLIT_REACH * (1 - Math.sin(angle))) / Math.hypot(tip.n[0], tip.n[1]);
+    target.set(tip.p[0] + tip.n[0] * reach - point.x, tip.p[1] + tip.n[1] * reach - point.y, -SLIT_DEPTH - point.z);
+    target.addScaledVector(along, -target.dot(along));
+    if (target.lengthSq() < 1e-10) target.set(0, 0, -1);
+    target.normalize();
+    const sin = along.dot(probe.crossVectors(across, target));
+    return Math.atan2(sin, across.dot(target));
   }
+
+  // With `stacked`, each fold also raises the paper to its new layer height
+  // just after it turns it, so later folds carry the layers round with the
+  // paper instead of lifting them straight up off a curled flap. A fold turns
+  // its flap's earlier height over with it, so its rise makes up for that.
+  function place(v, out, stacked = false, normal = null) {
+    const piece = pieces[owner[v]];
+    const row = v * (P + 1);
+    let height = stacked ? zs[row] : 0;
+    out.set(rest[v * 2], rest[v * 2 + 1], height);
+    normal?.set(0, 0, 1);
+    for (let k = 0; k < P; k++) {
+      const b = bends[k];
+      if (b.angle === 0) continue;
+      const id = phases[k].fold;
+      if (b.curl !== 0 && piece.moves[k]) {
+        const h = hinges[id];
+        const fromCrease = (out.x - h.px) * h.nx + (out.y - h.py) * h.ny;
+        const curl = b.curl * smooth(THREE.MathUtils.clamp(fromCrease / CURL_FADE, 0, 1));
+        if (Math.abs(curl) > 1e-6) bend(out, bows[id], curl, CURL_SPAN / Math.abs(curl), 0, true, normal);
+      }
+      const wrap = nearCrease[v * P + k];
+      const turned = wrap || piece.moves[k]
+        ? bend(out, hinges[id], b.angle, b.radius, b.sag, Boolean(wrap), normal)
+        : 0;
+      if (!stacked) continue;
+      // The turn lays a layer's height over to the flap's far side; the
+      // flap's layers take their new heights by the same share of the turn,
+      // so they keep to their order through the flap as it goes over. Paper
+      // still at the crease rises with the fold.
+      const step = zs[row + k + 1] - zs[row + k];
+      const flat = step * layering[k];
+      const over = (1 - Math.cos(turned)) / 2;
+      const whole = step + 2 * height;
+      out.z += flat * (1 - over) + whole * over;
+      height += flat * (1 - over) + step * over;
+    }
+    return out;
+  }
+
+  const clamp = (u) => THREE.MathUtils.clamp(u, 0, 1);
+  function swingTo(k, swing) {
+    const angle = swing * Math.PI;
+    const ease = Math.sin(angle);
+    Object.assign(bends[k], {
+      angle,
+      radius: CREASE_RADIUS + (BEND_RADIUS - CREASE_RADIUS) * ease,
+      sag: SAG * ease,
+      curl: 0,
+    });
+  }
+
+  // How far each tip bends over its flap's swing. The aim alone winds the tip
+  // up against the swing and then lets it go, so the tip would stall and then
+  // rush; smoothing it over the swing keeps the tip moving evenly.
+  const curlCurves = phases.map((phase, k) => {
+    if (!phase.tip) return null;
+    const aimed = [];
+    for (let i = 0; i <= CURL_SAMPLES; i++) {
+      const swing = i / CURL_SAMPLES;
+      swingTo(k, swing);
+      const aim = smooth(clamp((swing - AIM[0]) / (AIM[1] - AIM[0])));
+      aimed.push(aim > 0 ? slitAngle(k) * aim : 0);
+    }
+    swingTo(k, 0);
+    // The tip always bends on with the fold, so the flap domes over and the tip
+    // dips into the slit, however the aim leans. Cap how fast the bend winds up
+    // against the swing, keeping its depth by starting it earlier, and how fast
+    // it lets go against its own depth, so a shallow bend doesn't unwind
+    // against the falling flap. Then smooth it and ease it in from the start.
+    const depth = aimed.map((value) => Math.abs(value));
+    const step = (CURL_RATE * Math.PI) / CURL_SAMPLES;
+    for (let i = CURL_SAMPLES - 1; i >= 0; i--) depth[i] = Math.max(depth[i], depth[i + 1] - step);
+    const release = (CURL_RELEASE * Math.max(...depth)) / CURL_SAMPLES;
+    for (let i = 1; i <= CURL_SAMPLES; i++) depth[i] = Math.max(depth[i], depth[i - 1] - release);
+    // A shallow bend, or one let go too soon, would land nearly flat, leaving
+    // the slide nothing to push.
+    const deepen = Math.max(1, CURL_PEAK / Math.max(...depth, 1e-6));
+    depth.forEach((value, i) => {
+      depth[i] = value * deepen;
+    });
+    const peak = depth.indexOf(Math.max(...depth));
+    const hold = Math.min(depth[peak], CURL_LAND);
+    for (let i = peak + 1; i <= CURL_SAMPLES; i++) depth[i] = Math.max(depth[i], hold);
+    const curve = depth.map((_, i) => {
+      let sum = 0;
+      let weights = 0;
+      depth.forEach((value, j) => {
+        const weight = Math.exp(-0.5 * ((i - j) / (CURL_SMOOTHING * CURL_SAMPLES)) ** 2);
+        sum += value * weight;
+        weights += weight;
+      });
+      return (sum * smooth(clamp(i / CURL_SAMPLES / CURL_EASE_IN))) / weights;
+    });
+    return clearCurl(k, curve);
+  });
+
+  // Holds a tip's bend to what keeps its flap off the paper it lands on. Under
+  // the band the tip has the pocket to bow into, but anywhere else the bow
+  // would push the flap down through the layers below.
+  function clearCurl(k, curve) {
+    const cell = (x, y) => `${Math.round(x / CLEAR_CELL)},${Math.round(y / CLEAR_CELL)}`;
+    phases.forEach((_, j) => {
+      if (j !== k) swingTo(j, j < k ? 1 : 0);
+    });
+    swingTo(k, 0);
+    const below = new Map();
+    const pocket = new Set();
+    const flap = [];
+    // One test point per half cell of each piece: the rows along its edges
+    // add many more vertices there than the check needs.
+    const tested = new Set();
+    const hinge = hinges[phases[k].fold];
+    const kt = phases.findIndex((phase) => phase.fold === phases[k].tuck);
+    for (let v = 0; v < count; v++) {
+      const piece = pieces[owner[v]];
+      const row = v * (P + 1);
+      if (!piece.moves[k]) {
+        if (nearCrease[v * P + k]) continue;
+        place(v, point);
+        const key = cell(point.x, point.y);
+        if (piece.moves[kt]) pocket.add(key);
+        const z = point.z + Math.max(zs[row + k], zs[row + k + 1]);
+        below.set(key, Math.max(below.get(key) ?? -Infinity, z));
+      } else if (piece.tucked === undefined) {
+        const fromCrease = (rest[v * 2] - hinge.px) * hinge.nx + (rest[v * 2 + 1] - hinge.py) * hinge.ny;
+        const at = `${owner[v]},${Math.round(rest[v * 2] / (CELL / 2))},${Math.round(rest[v * 2 + 1] / (CELL / 2))}`;
+        if (Math.abs(fromCrease) > CURL_FADE / 2 && !tested.has(at)) {
+          tested.add(at);
+          flap.push(v);
+        }
+      }
+    }
+    const lowest = new Float32Array(flap.length);
+    const clears = (swing, curl) => {
+      bends[k].curl = curl;
+      return flap.every((v, i) => {
+        place(v, point);
+        const row = v * (P + 1);
+        const z = point.z + zs[row + k] + (zs[row + k + 1] - zs[row + k]) * swing;
+        if (curl === 0) lowest[i] = z;
+        const key = cell(point.x, point.y);
+        const floor = below.get(key);
+        if (z < Math.min(0, lowest[i])) return false;
+        return floor === undefined || pocket.has(key) || z >= Math.min(floor, lowest[i]) - CLEAR_SLACK;
+      });
+    };
+    const capped = curve.map((depth, i) => {
+      const swing = i / CURL_SAMPLES;
+      swingTo(k, swing);
+      clears(swing, 0);
+      if (depth === 0 || clears(swing, depth)) return depth;
+      let [lo, hi] = [0, depth];
+      for (let n = 0; n < 12; n++) {
+        const mid = (lo + hi) / 2;
+        if (clears(swing, mid)) lo = mid;
+        else hi = mid;
+      }
+      return lo;
+    });
+    phases.forEach((_, j) => swingTo(j, 0));
+    // Let the bend give way ahead of the cap rather than snap to it.
+    return curve.map((depth, i) =>
+      Math.min(depth, ...capped.map((cap, j) => cap + (Math.abs(i - j) * CLEAR_RATE) / CURL_SAMPLES)),
+    );
+  }
+  const curlAt = (k, swing) => {
+    const x = swing * CURL_SAMPLES;
+    const i = Math.min(Math.floor(x), CURL_SAMPLES - 1);
+    return THREE.MathUtils.lerp(curlCurves[k][i], curlCurves[k][i + 1], x - i);
+  };
 
   function setProgress(t) {
-    const progress = THREE.MathUtils.clamp(t, 0, 1);
-    steps.forEach((step, index) => {
-      const hinge = hinges[index];
-      const amount = smooth(segment(progress, index, steps.length));
-      hinge.lift = step.lift * amount;
-      hinge.active = amount > 0.001;
-      if (!hinge.active) return;
-      const midU = (step.ax + step.bx) / 2;
-      const midV = (step.ay + step.by) / 2;
-      const mask = creaseMoved(index, midU, midV);
-      place(step.ax, step.ay, mask, origin);
-      place(step.bx, step.by, mask, axis);
-      axis.sub(origin);
-      if (axis.lengthSq() < 1e-8) {
-        hinge.active = false;
-        return;
+    const at = clamp(t) * total;
+    const amounts = spans.map(([from, to]) => smooth(clamp((at - from) / (to - from))));
+    // A tucking flap rises to its new height as one through the swing, so it
+    // lands on the paper below instead of in it. Changing heights unevenly on
+    // a raised flap would tear it.
+    layering.set(amounts);
+    phases.forEach((phase, k) => {
+      const raw = clamp((at - spans[k][0]) / (spans[k][1] - spans[k][0]));
+      const swing = phase.tip ? smooth(clamp(raw / (1 - SLIDE))) : amounts[k];
+      swingTo(k, swing);
+      if (phase.tip) {
+        const slide = smooth(clamp((raw - 1 + SLIDE) / SLIDE));
+        bends[k].curl = curlAt(k, swing) * (1 - slide);
+        layering[k] = swing;
       }
-      axis.normalize();
-      place(step.sx, step.sy, mask, point);
-      probe.setFromAxisAngle(axis, 0.35);
-      const before = point.z;
-      point.sub(origin).applyQuaternion(probe).add(origin);
-      const sign = point.z >= before ? 1 : -1;
-      hinge.origin.copy(origin);
-      hinge.quat.setFromAxisAngle(axis, sign * amount * FOLD_ANGLE);
     });
 
-    const attr = geometry.getAttribute('position');
-    for (let i = 0; i < masks.length; i += 1) {
-      const u = rest[i * 3] / S + 0.5;
-      const v = rest[i * 3 + 1] / S + 0.5;
-      let mask = 0;
-      steps.forEach((step, index) => {
-        if ((masks[i] & (1 << index)) === 0) return;
-        if (step.requires && !step.requires(mask)) return;
-        mask |= 1 << index;
-      });
-      place(u, v, mask, point);
-      attr.setXYZ(i, point.x, point.y, point.z);
+    const out = positionAttr.array;
+    // Shade by the paper's folded shape alone: the layer heights ramp where
+    // pieces meet, and those ramps would show as smears under raking light.
+    // Each normal turns with the paper rather than being averaged from the
+    // triangles, which cut a tight crease's roll unevenly and would shade its
+    // edge in steps.
+    const normals = normalAttr.array;
+    const lay = (stacked) => {
+      for (let v = 0; v < count; v++) {
+        place(v, point, stacked, stacked ? null : facing);
+        out[v * 3] = point.x - w / 2;
+        out[v * 3 + 1] = point.y - h / 2;
+        out[v * 3 + 2] = point.z;
+        if (!stacked) facing.toArray(normals, v * 3);
+      }
+    };
+    lay(false);
+    normalAttr.needsUpdate = true;
+    // Each lean, scaled by how pressed its fold is.
+    const leaning = leans.map(({ k, from, to }) => {
+      const pressed = smooth(clamp((bends[k].angle / Math.PI - RIM_FROM) / (1 - RIM_FROM)));
+      if (pressed <= 0) return null;
+      const dir = new THREE.Vector3().fromArray(out, to * 3).sub(probe.fromArray(out, from * 3));
+      return dir.lengthSq() > 1e-12 ? dir.normalize().multiplyScalar(pressed) : null;
+    });
+    // Paper still swinging isn't pressed: its layers shift against each other
+    // as it bends, and a rolled edge would pick out the shift.
+    const still = pieces.map((piece) => piece.moves.reduce(
+      (left, moves, k) => (moves
+        ? left * Math.max(0, 1 - Math.sin(bends[k].angle) * 8) * Math.max(0, 1 - Math.abs(bends[k].curl) * 4)
+        : left),
+      1,
+    ));
+    const rims = rimAttr.array;
+    for (let v = 0; v < count; v++) {
+      const dir = leanOf[v] >= 0 ? leaning[leanOf[v]] : null;
+      const scale = dir ? still[owner[v]] : 0;
+      rims[v * 4] = dir ? dir.x * scale : 0;
+      rims[v * 4 + 1] = dir ? dir.y * scale : 0;
+      rims[v * 4 + 2] = dir ? dir.z * scale : 0;
     }
-    attr.needsUpdate = true;
-    geometry.computeVertexNormals();
+    rimAttr.needsUpdate = true;
+    // A tip bends back against its flap's turn, which would show its other
+    // side; it keeps the flap's face instead.
+    for (let v = 0; v < count; v++) {
+      shadeAttr.array[v] = tipPhase[v] >= 0 ? tipReach[v] * smooth(clamp(layering[tipPhase[v]] * TIP_SHADE)) : 0;
+    }
+    shadeAttr.needsUpdate = true;
+    lay(true);
+    positionAttr.needsUpdate = true;
+    geometry.computeBoundingSphere();
   }
 
   return { root, setProgress };
 }
 
-function carvePagu(steps) {
-  const pieces = [];
-  const eps = 1e-6;
-  function intersect(p, q, sp, sq) {
-    const t = Math.abs(sp - sq) < 1e-9 ? 0 : sp / (sp - sq);
-    return { x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t };
-  }
-  function clip(poly, positive, side) {
-    const out = [];
-    poly.forEach((cur, index) => {
-      const prev = poly[(index + poly.length - 1) % poly.length];
-      const sc = side(cur.x, cur.y);
-      const sp = side(prev.x, prev.y);
-      const curIn = positive ? sc >= -eps : sc <= eps;
-      const prevIn = positive ? sp >= -eps : sp <= eps;
-      if (curIn) {
-        if (!prevIn) out.push(intersect(prev, cur, sp, sc));
-        out.push(cur);
-      } else if (prevIn) out.push(intersect(prev, cur, sp, sc));
-    });
-    return out;
-  }
-  function carve(poly, mask, index) {
-    if (poly.length < 3) return;
-    if (index >= steps.length) {
-      pieces.push({ poly, mask });
-      return;
-    }
-    const side = steps[index].keep;
-    const onFlap = clip(poly, true, side);
-    const offFlap = clip(poly, false, side);
-    carve(onFlap, mask | (1 << index), index + 1);
-    carve(offFlap, mask, index + 1);
-  }
-  carve([{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }], 0, 0);
-  return pieces;
-}
-
-function paguSteps() {
-  const center = (mask) => (mask & 6) === 0;
-  return [
-    { ax: 0, ay: 0.92, bx: 1, by: 0.92, sx: 0.5, sy: 0.98, lift: 0.01, keep: (x, y) => y - 0.92 },
-    { ax: 0.92, ay: 0, bx: 0, by: 0.92, sx: 0.08, sy: 0.08, lift: 0.014, keep: (x, y) => 0.92 - x - y },
-    { ax: 0.08, ay: 1, bx: 1, by: 0.08, sx: 0.9, sy: 0.9, lift: 0.018, keep: (x, y) => x + y - 1.08 },
-    { ax: 1, ay: 0.36, bx: 0, by: 0.36, sx: 0.5, sy: 0.08, lift: 0.022, keep: (x, y) => 0.36 - y, requires: center },
-    { ax: 0, ay: 0.64, bx: 1, by: 0.64, sx: 0.5, sy: 0.88, lift: 0.026, keep: (x, y) => y - 0.64, requires: center },
-  ];
-}
-
-function foldSign(rest, corner) {
-  const origin = new THREE.Vector3(rest[corner.a * 3], rest[corner.a * 3 + 1], 0);
-  const axis = new THREE.Vector3(
-    rest[corner.b * 3] - origin.x,
-    rest[corner.b * 3 + 1] - origin.y,
-    0,
-  ).normalize();
-  const point = new THREE.Vector3(rest[corner.tip * 3], rest[corner.tip * 3 + 1], 0).sub(origin);
-  const turned = point.clone().applyQuaternion(new THREE.Quaternion().setFromAxisAngle(axis, 0.2));
-  return turned.z >= 0 ? 1 : -1;
-}
-
-function makeFlap(root, materials, spec) {
-  const hinge = new THREE.Group();
-  hinge.position.set(spec.hinge.x, spec.hinge.y, 0);
-  const rotator = new THREE.Group();
-  hinge.add(rotator);
-  root.add(hinge);
-  addRect(rotator, materials, spec);
-  return { rotator, axis: spec.axis, direction: spec.direction, lift: spec.lift };
-}
-
-function applyFlaps(flaps, t) {
-  const progress = THREE.MathUtils.clamp(t, 0, 1);
-  flaps.forEach((flap, index) => {
-    const amount = smooth(segment(progress, index, flaps.length));
-    flap.rotator.rotation.set(0, 0, 0);
-    flap.rotator.rotation[flap.axis] = flap.direction * amount * FOLD_ANGLE;
-    flap.rotator.position.z = flap.lift * amount;
-  });
-}
-
-function segment(t, index, count) {
-  const start = index / count;
-  const end = (index + 1) / count;
-  return THREE.MathUtils.clamp((t - start) / (end - start), 0, 1);
-}
-
 function smooth(u) {
   return u * u * (3 - 2 * u);
-}
-
-function addRect(parent, materials, spec) {
-  const geometry = rectGeometry(
-    spec.x0,
-    spec.y0,
-    spec.x1,
-    spec.y1,
-    spec.originX,
-    spec.originY,
-    spec.sheetW,
-    spec.sheetH,
-  );
-  addSurfaces(parent, geometry, materials, spec.order || 0);
-}
-
-function rectGeometry(x0, y0, x1, y1, originX, originY, sheetW, sheetH) {
-  const sx = (x) => (x + originX + sheetW / 2) / sheetW;
-  const sy = (y) => (y + originY + sheetH / 2) / sheetH;
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute([
-    x0, y0, 0,
-    x1, y0, 0,
-    x1, y1, 0,
-    x0, y1, 0,
-  ], 3));
-  geometry.setAttribute('uv', new THREE.Float32BufferAttribute([
-    sx(x0), sy(y0),
-    sx(x1), sy(y0),
-    sx(x1), sy(y1),
-    sx(x0), sy(y1),
-  ], 2));
-  geometry.setIndex([0, 1, 2, 0, 2, 3]);
-  geometry.computeVertexNormals();
-  return geometry;
-}
-
-function addSurfaces(parent, geometry, materials, order) {
-  const front = new THREE.Mesh(geometry, materials.front);
-  const back = new THREE.Mesh(geometry, materials.back);
-  front.renderOrder = order;
-  back.renderOrder = order;
-  parent.add(front, back);
 }

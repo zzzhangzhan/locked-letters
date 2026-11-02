@@ -13,7 +13,7 @@ const store = createStore(dataDir);
 const isProd = process.env.NODE_ENV === 'production';
 const port = Number(process.env.PORT) || 3000;
 
-const FOLDS = new Set(['trifold', 'gate', 'locked', 'pagu']);
+const FOLDS = new Set(['gate', 'pagu']);
 const PRESETS = new Set(['cream', 'lined', 'kraft', 'airmail']);
 const MIME_EXT = {
   'image/jpeg': '.jpg',
@@ -69,7 +69,7 @@ app.post('/api/letters', (req, res) => {
 
     if (!text) {
       removeUpload(req.file);
-      res.status(400).json({ error: 'Write a message before sealing.' });
+      res.status(400).json({ error: 'Write a message before locking it.' });
       return;
     }
     if (text.length > 4000) {

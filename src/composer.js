@@ -1,48 +1,52 @@
 import { FOLDS } from './folds.js';
+import { foldMini } from './mini.js';
 import { PRESETS, createLetterCanvas, drawLetter } from './texture.js';
 
 const PAPERS = PRESETS.filter((item) => item.id === 'cream' || item.id === 'kraft');
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-const FOLD_MS = 2600;
+const FOLD_MS = { gate: 3800, pagu: 7400 };
 
 const MINIS = {
-  trifold: '<span class="sheet tri"><i class="mid"></i><i class="bot"></i><i class="top"></i></span>',
-  gate: '<span class="sheet gate"><i class="mid"></i><i class="left"></i><i class="right"></i></span>',
-  locked: '<span class="sheet lock"><i class="base"></i><i class="c nw"></i><i class="c ne"></i><i class="c se"></i><i class="c sw"></i></span>',
-  pagu: '<span class="sheet hex"><i class="body"></i><i class="tuck"></i></span>',
+  gate: '<span class="sheet gate"><i class="l"></i><i class="ml"></i><span class="half"><i class="mr"></i><i class="r"></i></span></span>',
 };
 
 export function mountComposer(scene) {
+  const intro = document.getElementById('intro');
+  const start = document.getElementById('start');
   const composer = document.getElementById('composer');
   const message = document.getElementById('message');
   const papers = document.getElementById('papers');
   const folds = document.getElementById('folds');
+  const foldRef = document.getElementById('fold-ref');
+  const foldCopy = document.getElementById('fold-copy');
+  const foldVideo = document.getElementById('fold-video');
+  const foldCatalog = document.getElementById('fold-catalog');
   const seal = document.getElementById('seal');
   const status = document.getElementById('status');
   const share = document.getElementById('share');
   const link = document.getElementById('link');
   const copy = document.getElementById('copy');
   const another = document.getElementById('another');
-  const sendCopy = composer.querySelector('.send-copy');
+  const steps = ['write', 'paper', 'fold'];
+  const stepIndex = document.getElementById('step-index');
+  const bars = composer.querySelectorAll('.bars i');
 
   const canvas = createLetterCanvas();
   let preset = 'cream';
-  let fold = 'trifold';
-  let step = 'write';
+  let fold = 'pagu';
+  let step = 'intro';
   let timer = 0;
   let busy = false;
-  let sending = false;
-  let loopToken = 0;
-
-  composer.hidden = false;
+  let previewToken = 0;
+  intro.hidden = false;
   scene.setMode('composer');
 
   PAPERS.forEach((item) => {
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = `paper ${item.id}`;
+    button.className = `fold paper ${item.id}`;
     button.setAttribute('aria-pressed', String(item.id === preset));
-    button.innerHTML = `<span class="swatch ${item.id}" aria-hidden="true"></span><span>${item.name}</span>`;
+    button.innerHTML = `<span class="mini" aria-hidden="true"><span class="swatch ${item.id}"></span></span><span class="fold-name">${item.name}</span>`;
     button.addEventListener('click', () => {
       preset = item.id;
       markPapers();
@@ -56,7 +60,8 @@ export function mountComposer(scene) {
     button.type = 'button';
     button.className = 'fold';
     button.setAttribute('aria-pressed', String(item.id === fold));
-    button.innerHTML = `<span class="mini" aria-hidden="true">${MINIS[item.id]}</span><span class="fold-name">${item.name}</span>`;
+    button.innerHTML = `<span class="mini" aria-hidden="true">${MINIS[item.id] ?? ''}</span><span class="fold-name">${item.name}</span>`;
+    if (!MINIS[item.id]) button.querySelector('.mini').append(foldMini(item.id, { still: reduceMotion }));
     button.addEventListener('click', () => {
       if (busy) return;
       fold = item.id;
@@ -76,21 +81,29 @@ export function mountComposer(scene) {
 
   document.getElementById('to-paper').addEventListener('click', () => goTo('paper'));
   document.getElementById('to-fold').addEventListener('click', () => goTo('fold'));
-  document.getElementById('to-send').addEventListener('click', () => goTo('send'));
-  for (const name of ['write', 'paper', 'fold', 'send']) {
+  for (const name of steps) {
     document.getElementById(`nav-${name}`).addEventListener('click', () => goTo(name));
   }
+  bars.forEach((bar, index) => {
+    bar.addEventListener('click', () => {
+      if (index < steps.indexOf(step)) goTo(steps[index]);
+    });
+  });
+  composer.querySelectorAll('.back').forEach((back) => {
+    back.addEventListener('click', () => {
+      const index = steps.indexOf(step);
+      if (index > 0) goTo(steps[index - 1]);
+    });
+  });
 
   seal.addEventListener('click', async () => {
     const text = message.value.trim();
     if (!text) {
-      status.textContent = 'Write a message before sealing.';
+      status.textContent = 'Write a message before locking it.';
       showStep('write');
       message.focus();
       return;
     }
-    sending = true;
-    loopToken += 1;
     setBusy(true);
     status.textContent = '';
     share.hidden = true;
@@ -104,16 +117,14 @@ export function mountComposer(scene) {
     await scene.flyAway(1500 * motion);
     const saved = await pending;
     setBusy(false);
-    sending = false;
     if (!saved.ok) {
       composer.classList.remove('leaving');
       scene.present();
       status.textContent = saved.error;
-      loopFold();
+      previewFold();
       return;
     }
     link.value = `${window.location.origin}${saved.url}`;
-    sendCopy.hidden = true;
     seal.parentElement.hidden = true;
     share.hidden = false;
     requestAnimationFrame(() => {
@@ -141,7 +152,6 @@ export function mountComposer(scene) {
     share.classList.remove('show');
     share.hidden = true;
     composer.classList.remove('leaving');
-    sendCopy.hidden = false;
     seal.parentElement.hidden = false;
     status.textContent = '';
     scene.present();
@@ -150,13 +160,27 @@ export function mountComposer(scene) {
     message.focus();
   });
 
+  start.addEventListener('click', async () => {
+    start.disabled = true;
+    step = 'write';
+    intro.classList.add('leaving');
+    await scene.playTo(0, reduceMotion ? 0 : 600);
+    intro.hidden = true;
+    fold = FOLDS[0].id;
+    markFolds();
+    render();
+    composer.hidden = false;
+    showStep('write');
+    if (window.matchMedia('(pointer: fine)').matches) message.focus();
+  });
+
   render();
-  showStep('write');
+  previewFold();
 
   function goTo(next) {
     if (busy || next === step) return;
     if (next !== 'write' && !message.value.trim()) {
-      status.textContent = 'Write a message before choosing paper.';
+      status.textContent = 'Write a message first.';
       message.focus();
       return;
     }
@@ -166,65 +190,61 @@ export function mountComposer(scene) {
 
   function reopenSend() {
     share.hidden = true;
-    sendCopy.hidden = false;
     seal.parentElement.hidden = false;
   }
 
   function showStep(next) {
+    const index = steps.indexOf(next);
+    composer.dataset.dir = index < steps.indexOf(step) ? 'back' : 'forward';
     step = next;
     status.textContent = '';
+    stepIndex.textContent = `Step ${index + 1} of ${steps.length}`;
+    bars.forEach((bar, at) => {
+      bar.classList.toggle('is-done', at <= index);
+      bar.classList.toggle('is-now', at === index);
+    });
     const ready = Boolean(message.value.trim());
-    for (const name of ['write', 'paper', 'fold', 'send']) {
+    steps.forEach((name, at) => {
       const open = name === next;
       const panel = document.getElementById(`step-${name}`);
       panel.classList.toggle('is-on', open);
+      panel.parentElement.classList.toggle('current', open);
+      panel.parentElement.classList.toggle('done', at <= index);
       panel.toggleAttribute('inert', !open);
       const nav = document.getElementById(`nav-${name}`);
       nav.setAttribute('aria-expanded', String(open));
       if (open) nav.setAttribute('aria-current', 'step');
       else nav.removeAttribute('aria-current');
       nav.disabled = name !== 'write' && !ready;
-    }
-    if (next === 'fold') {
-      stopLoop();
-      previewFold();
-    } else if (next === 'send') {
-      loopFold();
-    } else {
-      stopLoop();
-      scene.playTo(0, 0);
-    }
+    });
+    if (next === 'fold') previewFold();
+    else scene.playTo(0, 0);
   }
 
-  function stopLoop() {
-    loopToken += 1;
+  function foldDuration() {
+    return FOLD_MS[fold];
   }
 
-  async function loopFold() {
-    const token = ++loopToken;
-    const motion = reduceMotion ? 0 : 1;
-    while (step === 'send' && token === loopToken && !sending) {
-      if (!(await scene.playTo(0, 650 * motion))) return;
-      if (step !== 'send' || token !== loopToken || sending) return;
-      if (!(await scene.playTo(1, foldDuration() * motion))) return;
-      if (step !== 'send' || token !== loopToken || sending) return;
-      await wait(420);
+  async function previewFold() {
+    const token = ++previewToken;
+    const shown = step;
+    const live = () => token === previewToken && step === shown && !busy;
+    await scene.playTo(0, 0);
+    if (reduceMotion) {
+      if (live()) scene.playTo(1, 0);
+      return;
+    }
+    while (live()) {
+      if (!(await scene.playTo(1, foldDuration())) || !live()) return;
+      await wait(1400);
+      if (!live() || !(await scene.playTo(0, 1100)) || !live()) return;
+      await wait(700);
     }
   }
 
   function wait(ms) {
     return new Promise((resolve) => {
       window.setTimeout(resolve, ms);
-    });
-  }
-
-  function foldDuration() {
-    return fold === 'pagu' ? 4800 : FOLD_MS;
-  }
-
-  function previewFold() {
-    scene.playTo(0, 0).then(() => {
-      if (step === 'fold') scene.playTo(1, reduceMotion ? 0 : foldDuration());
     });
   }
 
@@ -248,11 +268,18 @@ export function mountComposer(scene) {
     folds.querySelectorAll('.fold').forEach((button, index) => {
       button.setAttribute('aria-pressed', String(FOLDS[index].id === fold));
     });
+    const chosen = FOLDS.find((item) => item.id === fold);
+    foldRef.textContent = `Unlocking History \u00b7 ${chosen.uh}`;
+    foldCopy.textContent = chosen.blurb;
+    foldVideo.hidden = !chosen.video;
+    if (chosen.video) foldVideo.href = chosen.video;
+    foldCatalog.hidden = !chosen.catalog;
+    if (chosen.catalog) foldCatalog.href = chosen.catalog;
   }
 
   function refreshNav() {
     const ready = Boolean(message.value.trim());
-    for (const name of ['paper', 'fold', 'send']) {
+    for (const name of steps.slice(1)) {
       document.getElementById(`nav-${name}`).disabled = !ready;
     }
   }

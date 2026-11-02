@@ -1,29 +1,53 @@
 import * as THREE from 'three';
-import { buildFold, sheetSize } from './folds.js';
+import { buildFold, rollEdges, sheetSize } from './folds.js';
+
+// Linear-space multiplier, so folded-over paper reads as the back of the sheet.
+const BACK_SHADE = 0.66;
 
 export function createScene(canvas) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.setClearColor(0x1c1410);
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.15;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 40);
   const holder = new THREE.Group();
   scene.add(holder);
 
-  const hemi = new THREE.HemisphereLight(0xfff4e4, 0x2a2118, 0.9);
+  // A low ambient and a strong key raking across the sheet from the upper
+  // side, so creases and stacked layers read by their light and shadow.
+  const hemi = new THREE.HemisphereLight(0xfff4e4, 0x1a130e, 0.5);
   scene.add(hemi);
-  const key = new THREE.DirectionalLight(0xfff1dd, 1.2);
-  key.position.set(2.4, 3.4, 4.2);
+  const key = new THREE.DirectionalLight(0xffe9cc, 6.5);
+  key.position.set(-0.1, 4.3, 2.8);
+  key.target = holder;
+  key.castShadow = true;
+  key.shadow.mapSize.set(4096, 4096);
+  Object.assign(key.shadow.camera, { left: -2.4, right: 2.4, top: 2.4, bottom: -2.4, near: 0.5, far: 14 });
+  // Lit from about 40 degrees off the tilted sheet, past its top edge, each
+  // layer's edge throws a shadow down the sheet about as long as the step is
+  // high: a thin dark line along every seam and stack.
+  // Depth bias (a share of the camera's near-to-far range) spares single-layer
+  // steps, which would otherwise freckle with acne.
+  key.shadow.bias = -0.0006;
+  key.shadow.normalBias = 0.006;
+  key.shadow.radius = 4;
   scene.add(key);
-  const fill = new THREE.DirectionalLight(0xc5d4e8, 0.38);
-  fill.position.set(-3.2, 1.2, 2.4);
+  const fill = new THREE.DirectionalLight(0xb9c8e0, 0.22);
+  fill.position.set(-3.6, 0.8, 2.6);
   scene.add(fill);
+  const rim = new THREE.DirectionalLight(0xffd9a8, 0.9);
+  rim.position.set(-2.4, 3.2, -3.4);
+  scene.add(rim);
 
   const floor = new THREE.Mesh(
     new THREE.CircleGeometry(8, 64),
-    new THREE.MeshStandardMaterial({ color: 0x18110e, roughness: 1 }),
+    new THREE.MeshBasicMaterial({ color: 0x1e1612, toneMapped: false }),
   );
   floor.rotation.x = -Math.PI / 2;
   floor.position.y = -1.72;
@@ -63,10 +87,12 @@ export function createScene(canvas) {
   let viewRadius = 5;
   let frameDistance = 5;
   let onUnfold = null;
+  const stacked = window.matchMedia('(max-width: 820px) and (max-aspect-ratio: 4/5)');
   let framing = 'aside';
   let framed = false;
   let shownX = 0;
   let shownY = 0;
+  let shownLift = 0;
   let fly = 0;
   let flyStarted = 0;
   let flyMs = 1;
@@ -105,31 +131,26 @@ export function createScene(canvas) {
       texture.minFilter = THREE.LinearFilter;
       texture.magFilter = THREE.LinearFilter;
       if (!frontMat) {
-        frontMat = new THREE.MeshStandardMaterial({
+        backMat = rollEdges(new THREE.MeshStandardMaterial({
+          roughness: 0.95,
+          metalness: 0,
+          side: THREE.BackSide,
+        }));
+        frontMat = rollEdges(new THREE.MeshStandardMaterial({
           map: texture,
           roughness: 0.84,
           metalness: 0,
           side: THREE.FrontSide,
-          polygonOffset: true,
-          polygonOffsetFactor: -1,
-          polygonOffsetUnits: -1,
-        });
-        backMat = new THREE.MeshStandardMaterial({
-          color: backColor,
-          roughness: 0.95,
-          metalness: 0,
-          side: THREE.BackSide,
-        });
+        }), backMat.color);
       } else {
         frontMat.map = texture;
         frontMat.needsUpdate = true;
-        backMat.color.set(backColor);
       }
     } else {
       texture.image = letterCanvas;
       texture.needsUpdate = true;
-      backMat.color.set(backColor);
     }
+    backMat.color.set(backColor).multiplyScalar(BACK_SHADE);
 
     const size = sheetSize(nextFold);
     readRadius = size.h * 1.38;
@@ -150,6 +171,10 @@ export function createScene(canvas) {
       });
     }
     model = buildFold(fold, { front: frontMat, back: backMat });
+    model.root.traverse((obj) => {
+      obj.castShadow = true;
+      obj.receiveShadow = true;
+    });
     holder.add(model.root);
     model.setProgress(progress);
   }
@@ -211,7 +236,7 @@ export function createScene(canvas) {
   }
 
   canvas.addEventListener('pointerdown', (event) => {
-    if (playing || event.button !== 0) return;
+    if (event.button !== 0 || (playing && mode !== 'composer')) return;
     pointer.id = event.pointerId;
     pointer.x = event.clientX;
     pointer.y = event.clientY;
@@ -269,21 +294,36 @@ export function createScene(canvas) {
   }
 
   function frameSubject(dt) {
-    const dock = document.getElementById('composer');
-    const aside = framing === 'aside' && Boolean(dock && !dock.hidden);
-    const fit = framing === 'away' ? 1.12 + fly * 0.9 : aside ? 1.5 : 1.05;
+    const dock = document.querySelector('.float:not([hidden])');
+    const aside = framing === 'aside' && Boolean(dock);
+    const height = Math.max(canvas.clientHeight, 1);
+    const below = aside && stacked.matches;
+    const docked = below ? Math.min(dock.offsetHeight, height * 0.65) : 0;
+    const open = 1 - docked / height;
+    const narrow = Math.max(1, 0.8 / camera.aspect);
+    const fit = framing === 'away' ? 1.12 + fly * 0.9 : below ? 1.12 / open : aside ? 1.5 : 1.05 * narrow;
     frameDistance = spherical.radius * fit;
     const viewH = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * frameDistance;
     const viewW = viewH * camera.aspect;
-    const goalX = aside ? viewW * 0.22 : 0;
-    const goalY = aside ? viewH * 0.04 : 0;
+    const goalX = aside && !below ? viewW * 0.22 : 0;
+    const goalY = aside && !below ? viewH * 0.04 : 0;
+    const goalLift = docked / 2;
     if (!framed) {
       shownX = goalX;
       shownY = goalY;
+      shownLift = goalLift;
       framed = true;
     } else {
       shownX = THREE.MathUtils.damp(shownX, goalX, 3.4, dt);
       shownY = THREE.MathUtils.damp(shownY, goalY, 3.4, dt);
+      shownLift = THREE.MathUtils.damp(shownLift, goalLift, 3.4, dt);
+    }
+    // Raises the picture on screen, not the sheet, so the key light keeps its angle.
+    if (shownLift > 0.5) {
+      const width = canvas.clientWidth;
+      camera.setViewOffset(width, height, 0, shownLift, width, height);
+    } else if (camera.view?.enabled) {
+      camera.clearViewOffset();
     }
     if (framing === 'away') {
       const u = Math.min(1, (performance.now() - flyStarted) / flyMs);
@@ -370,7 +410,6 @@ export function createScene(canvas) {
     observer.observe(canvas);
   }
   requestAnimationFrame(animate);
-
   return {
     get fold() {
       return fold;

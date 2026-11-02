@@ -3,7 +3,7 @@ import { createLetterCanvas, drawLetter } from './texture.js';
 export async function mountReader(scene, id) {
   const hint = document.getElementById('hint');
   const missing = document.getElementById('missing');
-  document.title = 'A locked letter';
+  document.title = 'A locked letter for you';
   scene.setMode('reader');
   scene.onUnfold(() => hint.classList.add('faded'));
 
