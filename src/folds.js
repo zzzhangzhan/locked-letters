@@ -12,7 +12,7 @@ export const FOLDS = [
   {
     id: 'pagu',
     name: 'Pagu hexagon',
-    blurb: 'Corners and edges fold into a hexagon, then a tip tucks into its own pocket to lock it shut.',
+    blurb: 'Corners and edges fold into a hexagon, then a closure flap tucks into a pocket to lock it shut.',
     uh: 'UH6104',
     video: 'https://www.youtube.com/watch?v=ZGNSWfi0UmI',
   },
@@ -20,7 +20,7 @@ export const FOLDS = [
     id: 'jeff',
     name: 'Jefferson pentagon',
     history:
-      'In December 1818 at Monticello, Thomas Jefferson locked a note to Charlottesville watchmaker Louis Leschot into a tiny pentagon — asking him to repair his daughter’s watch, settle the family’s bill, and come to dinner.',
+      'Thomas Jefferson used this letterlocking technique at Monticello in December 1818, to lock a note to Charlottesville watchmaker Louis Leschot asking him to repair his daughter’s watch, settle the family’s bill, and come to dinner.',
     blurb: 'Roll-fold into a narrow strip, bend it into an L with unequal legs, stand both legs up, then fold the long one across and tuck its end behind the short one.',
     uh: 'UH6314',
     video: 'https://www.youtube.com/watch?v=Ozwys8hr8pA',

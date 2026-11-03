@@ -79,7 +79,7 @@ app.post('/api/letters', (req, res) => {
     }
     if (!FOLDS.has(fold)) {
       removeUpload(req.file);
-      res.status(400).json({ error: 'Choose a fold.' });
+      res.status(400).json({ error: 'Choose a technique.' });
       return;
     }
     if (!req.file && !PRESETS.has(preset)) {

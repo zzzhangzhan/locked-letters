@@ -21,11 +21,10 @@ export function mountComposer(scene) {
   const message = document.getElementById('message');
   const papers = document.getElementById('papers');
   const folds = document.getElementById('folds');
-  const foldRef = document.getElementById('fold-ref');
   const foldHistory = document.getElementById('fold-history');
   const foldCopy = document.getElementById('fold-copy');
   const foldVideo = document.getElementById('fold-video');
-  const foldCatalog = document.getElementById('fold-catalog');
+  const foldRef = document.getElementById('fold-ref');
   const seal = document.getElementById('seal');
   const status = document.getElementById('status');
   const share = document.getElementById('share');
@@ -287,14 +286,15 @@ export function mountComposer(scene) {
       button.setAttribute('aria-pressed', String(FOLDS[index].id === fold));
     });
     const chosen = FOLDS.find((item) => item.id === fold);
-    foldRef.textContent = `Unlocking History \u00b7 ${chosen.uh}`;
     foldHistory.hidden = !chosen.history;
     foldHistory.textContent = chosen.history || '';
     foldCopy.textContent = chosen.blurb;
+    const code = document.createElement(chosen.catalog ? 'a' : 'span');
+    code.textContent = chosen.uh;
+    if (chosen.catalog) Object.assign(code, { href: chosen.catalog, target: '_blank', rel: 'noopener' });
+    foldRef.replaceChildren(code, ' in the Unlocking History catalog');
     foldVideo.hidden = !chosen.video;
     if (chosen.video) foldVideo.href = chosen.video;
-    foldCatalog.hidden = !chosen.catalog;
-    if (chosen.catalog) foldCatalog.href = chosen.catalog;
   }
 
   function refreshNav() {

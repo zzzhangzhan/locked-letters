@@ -336,13 +336,6 @@ export function createScene(canvas) {
       shownY = THREE.MathUtils.damp(shownY, goalY, 3.4, dt);
       shownLift = THREE.MathUtils.damp(shownLift, goalLift, 3.4, dt);
     }
-    // Raises the picture on screen, not the sheet, so the key light keeps its angle.
-    if (shownLift > 0.5) {
-      const width = canvas.clientWidth;
-      camera.setViewOffset(width, height, 0, shownLift, width, height);
-    } else if (camera.view?.enabled) {
-      camera.clearViewOffset();
-    }
     if (framing === 'away') {
       const u = Math.min(1, (performance.now() - flyStarted) / flyMs);
       fly = u * u;
@@ -352,11 +345,22 @@ export function createScene(canvas) {
         done();
       }
     }
+    // The sheet stays at the orbit's centre, so dragging turns it about its own
+    // middle; the picture is shifted aside on screen instead, which also keeps
+    // the key light's angle.
+    const width = canvas.clientWidth;
+    const shiftX = ((shownX * (1 - fly)) / viewW) * width;
+    const shiftY = (shownY / viewH) * height + shownLift;
+    if (Math.abs(shiftX) > 0.5 || Math.abs(shiftY) > 0.5) {
+      camera.setViewOffset(width, height, -shiftX, shiftY, width, height);
+    } else if (camera.view?.enabled) {
+      camera.clearViewOffset();
+    }
     const lift = fly * viewH * 1.35;
-    holder.position.set(shownX * (1 - fly), shownY + lift, fly * viewH * 0.45);
+    holder.position.set(0, lift, fly * viewH * 0.45);
     holder.rotation.z = fly * -0.4;
     target.set(0, 0, 0);
-    shadow.position.x = shownX * (1 - fly);
+    shadow.position.x = 0;
     shadow.position.z = 0.15;
     shadow.material.opacity = 1 - fly;
   }
@@ -428,7 +432,7 @@ export function createScene(canvas) {
       camera.position.x, camera.position.y, camera.position.z,
       holder.position.x, holder.position.y, holder.position.z,
       holder.rotation.x, holder.rotation.y, holder.rotation.z,
-      shownLift, camera.aspect, shadow.material.opacity,
+      shownX, shownY, shownLift, camera.aspect, shadow.material.opacity,
     ].map((value) => value.toFixed(4)).join();
     if (dirty || pose !== lastPose) {
       renderer.render(scene, camera);

@@ -34,7 +34,7 @@ async function createLetter(request, env) {
 
   if (!text) return json({ error: 'Write a message before locking it.' }, 400);
   if (text.length > MAX_TEXT) return json({ error: 'Keep the message under 4,000 characters.' }, 400);
-  if (!FOLDS.has(fold)) return json({ error: 'Choose a fold.' }, 400);
+  if (!FOLDS.has(fold)) return json({ error: 'Choose a technique.' }, 400);
   if (!PRESETS.has(preset)) return json({ error: 'Choose a paper.' }, 400);
 
   const day = new Date().toISOString().slice(0, 10);
