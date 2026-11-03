@@ -22,7 +22,6 @@ export function mountComposer(scene) {
   const papers = document.getElementById('papers');
   const folds = document.getElementById('folds');
   const foldHistory = document.getElementById('fold-history');
-  const foldCopy = document.getElementById('fold-copy');
   const foldVideo = document.getElementById('fold-video');
   const foldRef = document.getElementById('fold-ref');
   const seal = document.getElementById('seal');
@@ -288,7 +287,6 @@ export function mountComposer(scene) {
     const chosen = FOLDS.find((item) => item.id === fold);
     foldHistory.hidden = !chosen.history;
     foldHistory.textContent = chosen.history || '';
-    foldCopy.textContent = chosen.blurb;
     const code = document.createElement(chosen.catalog ? 'a' : 'span');
     code.textContent = chosen.uh;
     if (chosen.catalog) Object.assign(code, { href: chosen.catalog, target: '_blank', rel: 'noopener' });

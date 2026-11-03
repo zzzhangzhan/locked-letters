@@ -327,7 +327,6 @@ textarea:focus, input:focus, button:focus-visible {
 #step-fold .fold-row { margin-block: 2px 0; }
 
 .fold-about { align-self: center; width: min(100%, 30em); }
-.fold-about .archive-copy { min-height: 0; }
 
 .step-actions button { flex: 1; padding: 13px 14px; }
 
@@ -349,13 +348,6 @@ textarea:focus, input:focus, button:focus-visible {
   max-width: 30em;
 }
 
-.archive-copy {
-  margin: 0;
-  font-size: 0.92rem;
-  line-height: 1.45;
-  color: rgba(244, 236, 223, 0.88);
-}
-
 .archive-cite {
   display: grid;
   gap: 8px;
@@ -363,15 +355,15 @@ textarea:focus, input:focus, button:focus-visible {
   padding-top: 10px;
   border-top: 1px solid rgba(244, 236, 223, 0.12);
   font-family: "Gill Sans", "Trebuchet MS", sans-serif;
-  font-size: 0.68rem;
-  letter-spacing: 0.08em;
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
   line-height: 1.5;
-  color: rgba(244, 236, 223, 0.5);
+  color: rgba(244, 236, 223, 0.6);
 }
 
 .archive-cite p { margin: 0; }
 
-#fold-history { letter-spacing: 0.03em; line-height: 1.6; }
+#fold-history { font-style: italic; letter-spacing: 0.02em; line-height: 1.55; }
 
 .archive-sources {
   display: flex;
@@ -655,6 +647,8 @@ button:disabled { opacity: 0.55; cursor: wait; }
 }
 
 @media (max-width: 820px) and (max-aspect-ratio: 4/5) {
+  .archive-sources { order: -1; }
+
   .float {
     left: 0;
     right: 0;
@@ -670,7 +664,7 @@ button:disabled { opacity: 0.55; cursor: wait; }
     overflow: hidden;
     padding: 14px 20px calc(10px + env(safe-area-inset-bottom));
   }
-  :root { --dock-height: clamp(300px, 36%, 340px); }
+  :root { --dock-height: clamp(340px, 44%, 400px); }
   #intro {
     height: auto;
     gap: 12px;

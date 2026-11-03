@@ -5,14 +5,12 @@ export const FOLDS = [
   {
     id: 'gate',
     name: 'Closed gatefold',
-    blurb: 'Both side edges fold to the center like two gate doors swinging shut, then the sheet folds in half so all four panels stack.',
     uh: 'UH0115',
     video: 'https://www.youtube.com/watch?v=BlNS6KBeqoA',
   },
   {
     id: 'pagu',
     name: 'Pagu hexagon',
-    blurb: 'Corners and edges fold into a hexagon, then a closure flap tucks into a pocket to lock it shut.',
     uh: 'UH6104',
     video: 'https://www.youtube.com/watch?v=ZGNSWfi0UmI',
   },
@@ -21,7 +19,6 @@ export const FOLDS = [
     name: 'Jefferson pentagon',
     history:
       'Thomas Jefferson used this letterlocking technique at Monticello in December 1818, to lock a note to Charlottesville watchmaker Louis Leschot asking him to repair his daughter’s watch, settle the family’s bill, and come to dinner.',
-    blurb: 'Roll-fold into a narrow strip, bend it into an L with unequal legs, stand both legs up, then fold the long one across and tuck its end behind the short one.',
     uh: 'UH6314',
     video: 'https://www.youtube.com/watch?v=Ozwys8hr8pA',
     catalog: 'https://letterlocking.org/uh6314',
