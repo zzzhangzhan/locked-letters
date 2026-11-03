@@ -9,7 +9,7 @@ export async function mountReader(scene, id) {
 
   let payload;
   try {
-    const response = await fetch(`/api/letters/${encodeURIComponent(id)}`);
+    const response = await fetch(`${import.meta.env.BASE_URL}api/letters/${encodeURIComponent(id)}`);
     if (!response.ok) throw new Error('missing');
     payload = await response.json();
   } catch {

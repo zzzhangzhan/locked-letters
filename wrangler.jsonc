@@ -1,0 +1,30 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "locked-letters",
+  "main": "worker/index.js",
+  "compatibility_date": "2025-10-01",
+  // Only this path is handled here; the rest of zhangzhan.work stays on GitHub Pages.
+  "routes": [
+    { "pattern": "zhangzhan.work/locked-letters*", "zone_name": "zhangzhan.work" }
+  ],
+  "workers_dev": false,
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "locked-letters",
+      "database_id": "8789a94f-6a4b-4770-a73f-47d735904396",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "vars": {
+    // Letters that can be sent per day, across everyone and per sender.
+    "DAILY_LETTER_CAP": "200",
+    "SENDER_DAILY_CAP": "20"
+  }
+}

@@ -136,7 +136,7 @@ export function mountComposer(scene) {
       previewFold();
       return;
     }
-    link.value = `${window.location.origin}${saved.url}`;
+    link.value = `${window.location.origin}${import.meta.env.BASE_URL}l/${saved.id}`;
     seal.parentElement.hidden = true;
     share.hidden = false;
     requestAnimationFrame(() => {
@@ -320,10 +320,10 @@ async function saveLetter(text, fold, preset) {
   body.set('preset', preset);
 
   try {
-    const response = await fetch('/api/letters', { method: 'POST', body });
+    const response = await fetch(`${import.meta.env.BASE_URL}api/letters`, { method: 'POST', body });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) return { ok: false, error: data.error || 'The letter could not be saved.' };
-    return { ok: true, url: data.url };
+    return { ok: true, id: data.id };
   } catch {
     return { ok: false, error: 'The letter could not be saved.' };
   }
