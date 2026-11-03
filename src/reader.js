@@ -1,4 +1,4 @@
-import { createLetterCanvas, drawLetter } from './texture.js';
+import { createLetterCanvas, drawLetter, letterFontReady } from './texture.js';
 
 export async function mountReader(scene, id) {
   const hint = document.getElementById('hint');
@@ -17,7 +17,7 @@ export async function mountReader(scene, id) {
     return;
   }
 
-  if (!['trifold', 'gate', 'locked', 'pagu'].includes(payload.fold)) {
+  if (!['trifold', 'gate', 'locked', 'pagu', 'jeff'].includes(payload.fold)) {
     missing.hidden = false;
     return;
   }
@@ -32,6 +32,7 @@ export async function mountReader(scene, id) {
     }
   }
 
+  await letterFontReady;
   const canvas = createLetterCanvas();
   const backColor = drawLetter(canvas, {
     text: payload.text,

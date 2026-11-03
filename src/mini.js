@@ -70,9 +70,12 @@ export function foldMini(id, { still = false } = {}) {
 
   // Phase k at amount t of its swing.
   function draw(k, t) {
+    const spin = phases.reduce((sum, phase, j) => sum + phase.spin * (j < k ? 1 : j === k ? t : 0), 0);
+    const [cos, sin] = [Math.cos(spin), Math.sin(spin)];
     const placed = pieces.map((piece) => {
       const M = piece.maps[k];
-      const moving = k < phases.length && piece.moves[k] && t > 0;
+      // A lift only restacks its flap, which a flat diagram shows as it lands.
+      const moving = k < phases.length && piece.moves[k] && t > 0 && !phases[k].lift;
       let points = piece.poly.map((point) => apply(M, point));
       if (moving) {
         const { p, n } = phases[k].line;
@@ -82,8 +85,9 @@ export function foldMini(id, { still = false } = {}) {
           return [x - n[0] * s * pull, y - n[1] * s * pull];
         });
       }
-      const flips = piece.moves.slice(0, k).filter(Boolean).length + (moving && t > 0.5 ? 1 : 0);
-      const z = piece.z[moving && t > 0.5 ? k + 1 : k];
+      if (spin) points = points.map(([x, y]) => [x * cos - y * sin, x * sin + y * cos]);
+      const flips = piece.moves.slice(0, k).filter((m, j) => m && !phases[j].lift).length + (moving && t > 0.5 ? 1 : 0);
+      const z = piece.z[(moving || (k < phases.length && phases[k].lift)) && t > 0.5 ? k + 1 : k];
       return { points, moving, flips, z, swing: moving ? Math.sin(Math.PI * t) : 0 };
     });
 

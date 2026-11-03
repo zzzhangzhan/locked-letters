@@ -1,5 +1,11 @@
+import '@fontsource/eb-garamond/400.css';
+
 // Phones redraw and upload the sheet on every keystroke, so they get a smaller one.
 const TEX = window.matchMedia('(pointer: coarse)').matches ? 1024 : 1400;
+
+const LETTER_FONT = '"EB Garamond", Garamond, "Iowan Old Style", Palatino, Georgia, serif';
+// A canvas doesn't wait for a web font, so the sheet is drawn again once it is in.
+export const letterFontReady = document.fonts.load(`400 40px ${LETTER_FONT}`).catch(() => {});
 
 export const PRESETS = [
   { id: 'cream', name: 'Cream', back: '#e4d8c4' },
@@ -11,7 +17,9 @@ export const PRESETS = [
 const presetCache = new Map();
 
 export function sheetAspect(fold) {
-  return fold === 'locked' || fold === 'pagu' ? 1 : 8.5 / 11;
+  if (fold === 'locked' || fold === 'pagu') return 1;
+  if (fold === 'jeff') return 152 / 130;
+  return 8.5 / 11;
 }
 
 export function createLetterCanvas() {
@@ -167,7 +175,7 @@ function contentBox(width, height) {
 function paintHint(ctx, width, height) {
   const box = contentBox(width, height);
   ctx.fillStyle = 'rgba(62, 48, 36, 0.38)';
-  ctx.font = `italic ${Math.round(width * 0.034)}px "Iowan Old Style", Palatino, Georgia, serif`;
+  ctx.font = `400 ${Math.round(width * 0.038)}px ${LETTER_FONT}`;
   ctx.textBaseline = 'top';
   ctx.fillText('Your words will sit here', box.x, box.y);
 }
@@ -197,7 +205,7 @@ function paintMessage(ctx, width, height, text, veil) {
 function fitText(ctx, text, box) {
   const min = 18;
   const layout = (size) => {
-    ctx.font = `${size}px "Iowan Old Style", Palatino, Georgia, serif`;
+    ctx.font = `400 ${size}px ${LETTER_FONT}`;
     const lines = wrapText(ctx, text, box.w);
     const lineHeight = Math.round(size * 1.38);
     return { size, lines, lineHeight, usedHeight: layoutHeight(lines.length, lineHeight, box) };
@@ -216,7 +224,7 @@ function fitText(ctx, text, box) {
       } else hi = mid;
     }
   }
-  return { ...best, font: `${best.size}px "Iowan Old Style", Palatino, Georgia, serif` };
+  return { ...best, font: `400 ${best.size}px ${LETTER_FONT}` };
 }
 
 function layoutHeight(lineCount, lineHeight, box) {

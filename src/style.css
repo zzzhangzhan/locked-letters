@@ -317,9 +317,9 @@ textarea:focus, input:focus, button:focus-visible {
 
 .fold-row {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 132px));
+  grid-template-columns: repeat(3, minmax(0, 118px));
   justify-content: center;
-  gap: 10px;
+  gap: 8px;
   margin-block: auto;
 }
 
@@ -327,7 +327,8 @@ textarea:focus, input:focus, button:focus-visible {
 #step-fold .fold-row { margin-block: 2px 0; }
 
 .fold-about { align-self: center; width: min(100%, 30em); }
-.fold-about .archive-copy { min-height: 2.8em; }
+.fold-about .archive-copy { min-height: 0; }
+#fold-history:not([hidden]) + #fold-copy { opacity: 0.78; font-size: 0.84rem; }
 
 .step-actions button { flex: 1; padding: 13px 14px; }
 
@@ -677,8 +678,27 @@ button:disabled { opacity: 0.55; cursor: wait; }
   .intro-copy { font-size: 0.92rem; }
   .intro-actions { margin-top: 6px; }
   .intro-actions button { flex: 1; padding: 13px 14px; }
-  #composer { height: auto; min-height: var(--dock-height); max-height: 75%; }
-  #message { flex: none; max-height: 110px; }
+  #composer { height: var(--dock-height); }
+  #message { min-height: 0; }
+  .fold-row { margin-block: 4px 0; }
+  .fold-row + .step-actions { margin-top: auto; }
+  .step-body { min-height: 0; }
+  #step-fold .step-body {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    padding-top: 10px;
+    margin-top: -8px;
+    mask-image: linear-gradient(to bottom, transparent, #000 12px);
+  }
+  #step-fold .step-body > * { flex-shrink: 0; }
+  #step-fold .step-actions {
+    position: sticky;
+    bottom: 0;
+    margin-top: auto;
+    padding-top: 20px;
+    background: linear-gradient(to bottom, rgba(28, 20, 16, 0), #1c1410 20px);
+  }
   .intro-film { inset: 0 0 var(--intro-height, 45dvh) 0; }
   .intro-film video { width: min(115%, calc((100dvh - var(--intro-height, 45dvh)) * 1.5)); }
   .intro-credit { text-align: center; }

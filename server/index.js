@@ -13,7 +13,7 @@ const store = createStore(dataDir);
 const isProd = process.env.NODE_ENV === 'production';
 const port = Number(process.env.PORT) || 3000;
 
-const FOLDS = new Set(['gate', 'pagu']);
+const FOLDS = new Set(['gate', 'pagu', 'jeff']);
 const PRESETS = new Set(['cream', 'lined', 'kraft', 'airmail']);
 const MIME_EXT = {
   'image/jpeg': '.jpg',

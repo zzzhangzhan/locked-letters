@@ -16,10 +16,25 @@ export const FOLDS = [
     uh: 'UH6104',
     video: 'https://www.youtube.com/watch?v=ZGNSWfi0UmI',
   },
+  {
+    id: 'jeff',
+    name: 'Jefferson pentagon',
+    history:
+      'In December 1818 at Monticello, Thomas Jefferson locked a note to Charlottesville watchmaker Louis Leschot into a tiny pentagon — asking him to repair his daughter’s watch, settle the family’s bill, and come to dinner.',
+    blurb: 'Roll-fold into a narrow strip, bend it into an L with unequal legs, stand both legs up, then fold the long one across and tuck its end behind the short one.',
+    uh: 'UH6314',
+    video: 'https://www.youtube.com/watch?v=Ozwys8hr8pA',
+    catalog: 'https://letterlocking.org/uh6314',
+  },
 ];
 
 export function sheetSize(fold) {
   if (fold === 'locked' || fold === 'pagu') return { w: 2.2, h: 2.2 };
+  // UH6314 opens at about 152 × 130 mm — wider than it is tall.
+  if (fold === 'jeff') {
+    const w = 2.5;
+    return { w, h: w * (130 / 152) };
+  }
   const h = 2.4;
   return { w: h * (8.5 / 11), h };
 }
@@ -60,23 +75,24 @@ export function buildFold(id, materials) {
   if (id === 'gate') return buildSheet(gateSpec(), materials);
   if (id === 'locked') return buildSheet(lockedSpec(), materials);
   if (id === 'pagu') return buildSheet(paguSpec(), materials);
+  if (id === 'jeff') return buildSheet(jeffSpec(), materials);
   return buildSheet(trifoldSpec(), materials);
 }
 
 // The fold flattened for a top-down diagram: each piece of the sheet with its
 // placement and stack height after every phase (index 0 is the open sheet).
 export function foldPlan(id) {
-  const spec = { gate: gateSpec, locked: lockedSpec, pagu: paguSpec }[id]?.() ?? trifoldSpec();
+  const spec = { gate: gateSpec, locked: lockedSpec, pagu: paguSpec, jeff: jeffSpec }[id]?.() ?? trifoldSpec();
   const { lines, pieces } = foldPieces(spec);
   const steps = spec.phases.map((phase) => lines[phase.fold]);
   return {
     w: spec.w,
     h: spec.h,
-    phases: spec.phases.map((phase, k) => ({ weight: phase.weight, line: steps[k] })),
+    phases: spec.phases.map((phase, k) => ({ weight: phase.weight, line: steps[k], spin: phase.spin ?? 0, lift: Boolean(phase.lift) })),
     pieces: pieces.map((piece) => {
       const maps = [[1, 0, 0, 1, 0, 0]];
       piece.moves.forEach((moving, k) => {
-        maps.push(moving ? composeMap(reflectMap(steps[k]), maps[k]) : maps[k]);
+        maps.push(moving && !spec.phases[k].lift ? composeMap(reflectMap(steps[k]), maps[k]) : maps[k]);
       });
       return { poly: piece.poly, moves: piece.moves, maps, z: piece.z };
     }),
@@ -85,7 +101,8 @@ export function foldPlan(id) {
 
 // Every fold is a list of phases over crease lines, in world units with the
 // sheet's bottom-left corner at the origin and y up. A line's normal points at
-// the side that turns over; every fold takes all layers on that side.
+// the side that turns over; every fold takes all layers on that side, unless
+// it names an earlier phase as `only`.
 const r = Math.SQRT1_2;
 
 function trifoldSpec() {
@@ -195,6 +212,68 @@ function paguSpec() {
   };
 }
 
+// Jefferson pentagon (UH6314 / LUV314), following the step photos s1–s9.
+// The landscape sheet (152 × 130) rolls from the bottom into a strip along its
+// top edge (s1–s4), and a diagonal bends it into an L: short leg left, long
+// leg up (s5). The short leg folds up behind, beside the long one, so the two
+// legs stand over a V point (s6). The long leg folds left across the top of
+// both (s7) and tucks in behind the short leg's tip (s8): the tip lifts out
+// of its way and settles back over it once it is down, while the packet
+// turns 45 degrees clockwise, leaving a pentagon point up (s9).
+function jeffSpec() {
+  const { w, h } = sheetSize('jeff');
+  const s = h / 4;
+  const y0 = (3 * h) / 4;
+  // Where the L bends, measured along the strip: the short leg is the part
+  // left of it. At 2s it stands as tall as the packet, covering the square
+  // the long leg folds across; the long leg, running up 2s and back across,
+  // ends behind it short of the outer edge, so none of it shows.
+  const a = 2 * s;
+  // The packet ends up a 2s square of creases around (a, y0 + s).
+  const offset = [w / 2 - a, h / 2 - (y0 + s)];
+  return {
+    w,
+    h,
+    offset,
+    lines: {
+      roll1: { p: [0, h / 4], d: [1, 0], n: [0, -1] },
+      roll2: { p: [0, h / 2], d: [1, 0], n: [0, -1] },
+      roll3: { p: [0, y0], d: [1, 0], n: [0, -1] },
+      leg: { p: [a, y0], d: [r, r], n: [r, -r] },
+      // Mirrors the leg crease about x = a, so the short leg stands up just
+      // left of the long one and the two creases meet in the V at (a, y0).
+      short: { p: [a, y0], d: [r, -r], n: [-r, -r] },
+      // Through the long leg at a height of 2s above the V: the leg above it
+      // turns left and runs across the top of the short leg.
+      long: { p: [a + s, y0 + s], d: [r, -r], n: [r, r] },
+      // Along the top of the V, where the short leg's tip rises past it.
+      tip: { p: [0, y0 + s], d: [1, 0], n: [0, 1] },
+    },
+    phases: [
+      { fold: 'roll1', weight: 0.9 },
+      { fold: 'roll2', weight: 0.9 },
+      { fold: 'roll3', weight: 0.9 },
+      { fold: 'leg', weight: 1.25 },
+      { fold: 'short', weight: 1.2, behind: true },
+      { fold: 'long', weight: 1.8, bend: { radius: 0.2, sag: 0.5 } },
+      // Lifted while the long leg comes down, the tip settles back over it.
+      // It rises with the long leg's first half, to just past upright before
+      // the long leg crosses its crease, leaning over the V clear of every
+      // place the long leg sweeps, and settles once the long leg is down. A
+      // tight crease keeps it from bulging back over the long leg's side.
+      {
+        fold: 'tip',
+        weight: 2.7,
+        only: 'short',
+        lift: 0.53 * Math.PI,
+        bend: { radius: 0.03, sag: -0.3 },
+        overlap: 1,
+        spin: -Math.PI / 4,
+      },
+    ],
+  };
+}
+
 const LAYER_GAP = 0.005;
 const EPS = 1e-6;
 // Phones reshape every vertex each frame far slower, so they get a lighter
@@ -235,6 +314,11 @@ const AIM = [0.3, 0.75];
 // this far below it.
 const SLIT_REACH = 0.2;
 const SLIT_DEPTH = 0.02;
+// How far through a phase that turns the whole packet (its `spin`) the turn
+// starts.
+const SPIN_FROM = 0.6;
+// The share of a lift's swing its flap takes to rise, and again to settle.
+const LIFT_RAMP = 0.24;
 // Samples of a tip's bend over its flap's swing; how fast the bend may wind up
 // against the swing (a share of the flap's own turning); how fast it may let go
 // (its deepest bend per whole swing); the share of the swing it eases in over;
@@ -425,10 +509,12 @@ function foldPieces({ w, h, lines: specLines, phases }) {
   phases.forEach((phase, k) => {
     if (phase.cut) split(phase.cut, null);
     const id = phase.fold;
-    split(lines[id], 'moving', undefined, creases[k]);
+    // With `only`, the fold takes just the layers that turned in that phase.
+    const ko = phase.only ? phases.findIndex((p) => p.fold === phase.only) : -1;
+    split(lines[id], 'moving', ko < 0 ? undefined : (piece) => piece.moves[ko], creases[k]);
     const reflect = reflectMap(lines[id]);
     pieces.forEach((piece) => {
-      if (piece.moving) piece.map = composeMap(reflect, piece.map);
+      if (piece.moving && !phase.lift) piece.map = composeMap(reflect, piece.map);
       piece.moves.push(Boolean(piece.moving));
     });
     if (phase.tip) {
@@ -465,19 +551,20 @@ function foldPieces({ w, h, lines: specLines, phases }) {
     }
 
     // Stack order: moving layers flip over and land on top, except where a
-    // tucked flap slides under the layers that form the pocket.
+    // tucked flap slides under the pocket, or a `behind` fold swings under.
     const shapes = pieces.map(folded);
     const below = pieces.map(() => []);
     pieces.forEach((a, i) => {
       pieces.forEach((b, j) => {
         if (j <= i || !polysOverlap(shapes[i], shapes[j])) return;
         let aOnTop;
-        if (a.moving && b.moving) aOnTop = a.z[k] < b.z[k];
+        // A fold turns its layers over; a lift keeps them in order.
+        if (a.moving && b.moving) aOnTop = phase.lift ? a.z[k] > b.z[k] : a.z[k] < b.z[k];
         else if (a.moving || b.moving) {
           const mover = a.moving ? a : b;
           const other = a.moving ? b : a;
           const pocket = phase.tuck && other.moves[phases.findIndex((p) => p.fold === phase.tuck)];
-          aOnTop = (mover === a) !== Boolean(pocket);
+          aOnTop = (mover === a) !== (Boolean(pocket) || Boolean(phase.behind));
         } else aOnTop = a.z[k] > b.z[k];
         if (aOnTop) below[i].push(j);
         else below[j].push(i);
@@ -699,8 +786,8 @@ function buildSheet(spec, materials) {
   // over the stretch before the band's edge, so the edge lies over the flap
   // rather than the flap riding over the edge. It never sinks into the paper
   // under it.
-  const maps = pieces.map((piece) => phases.reduce((list, { fold }, k) => {
-    list.push(piece.moves[k] ? composeMap(reflectMap(lines[fold]), list[k]) : list[k]);
+  const maps = pieces.map((piece) => phases.reduce((list, { fold, lift }, k) => {
+    list.push(piece.moves[k] && !lift ? composeMap(reflectMap(lines[fold]), list[k]) : list[k]);
     return list;
   }, [[1, 0, 0, 1, 0, 0]]));
   const members = pieces.map(() => []);
@@ -858,12 +945,16 @@ function buildSheet(spec, materials) {
     }
   });
   // Vertices close enough to a crease, along the sheet, to wrap around it.
-  const reach = BEND_RADIUS * Math.PI + CELL;
+  // A phase's `bend` can soften its fold: a wider crease mid-swing and a flap
+  // that trails further behind it, or curls on ahead with a negative sag.
+  const bendRadius = phases.map((phase) => phase.bend?.radius ?? BEND_RADIUS);
+  const bendSag = phases.map((phase) => phase.bend?.sag ?? SAG);
+  const reach = bendRadius.map((radius) => radius * Math.PI + CELL);
   const nearCrease = new Uint8Array(count * P);
   for (let v = 0; v < count; v++) {
     const point = [rest[v * 2], rest[v * 2 + 1]];
     for (let k = 0; k < P; k++) {
-      if (creases[k].some((seg) => segmentDistance(point, seg) < reach)) nearCrease[v * P + k] = 1;
+      if (creases[k].some((seg) => segmentDistance(point, seg) < reach[k])) nearCrease[v * P + k] = 1;
     }
   }
   // Paper pressed flat still turns over its folded edges in a tight roll. Each
@@ -937,16 +1028,21 @@ function buildSheet(spec, materials) {
   });
   geometry.setIndex(indices);
 
+  // The packet turns about its centre, which `offset` brings to the origin
+  // over the fold; the open sheet stays centred like every other fold's.
   const root = new THREE.Group();
-  root.add(new THREE.Mesh(geometry, materials.front), new THREE.Mesh(geometry, materials.back));
+  const sheet = new THREE.Group();
+  sheet.add(new THREE.Mesh(geometry, materials.front), new THREE.Mesh(geometry, materials.back));
+  root.add(sheet);
 
+  // A phase's `overlap` sets how far into the one before it it starts.
   let start = 0;
-  const spans = phases.map(({ weight }) => {
+  const spans = phases.map(({ weight }, k) => {
     const span = [start, start + weight];
-    start += weight * (1 - OVERLAP);
+    start += weight * (1 - (phases[k + 1]?.overlap ?? OVERLAP));
     return span;
   });
-  const total = spans[spans.length - 1][1];
+  const total = Math.max(...spans.map(([, end]) => end));
 
   const point = new THREE.Vector3();
   const probe = new THREE.Vector3();
@@ -957,7 +1053,8 @@ function buildSheet(spec, materials) {
   const bends = phases.map(() => ({ angle: 0, radius: 0, sag: 0, curl: 0 }));
   const layering = new Float32Array(P);
   // Wraps the part of the sheet past a crease around a cylinder of `radius`
-  // that rolls up to `angle`, then runs on as a flap curving back by `sag`.
+  // that rolls up to `angle`, then runs on as a flap curving back by `sag`
+  // (or, if negative, curling on further, like paper lifted by its edge).
   // `wrap` is false for layers that only lie near the crease after earlier
   // folds; they turn with the flap instead of wrapping. Turns `normal` with
   // the paper if given, and returns how far the point turned.
@@ -986,7 +1083,7 @@ function buildSheet(spec, materials) {
       const u = s - arc;
       const endX = radius * Math.sin(turn);
       const endZ = radius * (1 - Math.cos(turn));
-      if (sag > 1e-6) {
+      if (Math.abs(sag) > 1e-6) {
         turned = turn - sag * u;
         X = endX + (Math.sin(turn) - Math.sin(turned)) / sag - lift * Math.sin(turned);
         Z = endZ + (Math.cos(turned) - Math.cos(turn)) / sag + lift * Math.cos(turned);
@@ -1065,7 +1162,8 @@ function buildSheet(spec, materials) {
       }
       if (k === P) break;
       const b = bends[k];
-      if (b.angle === 0) continue;
+      // A lift ends flat again, but still holds its flap at its new height.
+      if (b.angle === 0 && (!stacked || layering[k] === 0)) continue;
       const moves = piece.moves[k];
       if (b.curl !== 0 && moves) {
         const h = phaseHinge[k];
@@ -1094,12 +1192,18 @@ function buildSheet(spec, materials) {
 
   const clamp = (u) => THREE.MathUtils.clamp(u, 0, 1);
   function swingTo(k, swing) {
-    const angle = swing * Math.PI;
-    const ease = Math.sin(angle);
+    // A `behind` fold swings the other way so the flap comes up from under.
+    // A `lift` raises its flap to that angle, holds it there over the middle
+    // of its swing, and lays it back down where it was.
+    const { lift } = phases[k];
+    const angle = lift
+      ? lift * smooth(clamp(swing / LIFT_RAMP)) * smooth(clamp((1 - swing) / LIFT_RAMP))
+      : swing * Math.PI * (phases[k].behind ? -1 : 1);
+    const ease = Math.sin(Math.abs(angle));
     Object.assign(bends[k], {
       angle,
-      radius: CREASE_RADIUS + (BEND_RADIUS - CREASE_RADIUS) * ease,
-      sag: SAG * ease,
+      radius: CREASE_RADIUS + (bendRadius[k] - CREASE_RADIUS) * ease,
+      sag: bendSag[k] * ease,
       curl: 0,
     });
   }
@@ -1251,6 +1355,15 @@ function buildSheet(spec, materials) {
         layering[k] = swing;
       }
     });
+    if (spec.offset) {
+      const share = smooth(clamp(t));
+      sheet.position.set(spec.offset[0] * share, spec.offset[1] * share, 0);
+    }
+    root.rotation.z = phases.reduce((sum, phase, k) => {
+      if (!phase.spin) return sum;
+      const raw = clamp((at - spans[k][0]) / (spans[k][1] - spans[k][0]));
+      return sum + phase.spin * smooth(clamp((raw - SPIN_FROM) / (1 - SPIN_FROM)));
+    }, 0);
 
     // Phases before the first one that moved since the last call place every
     // vertex the same as then, so each pass resumes from where they left it.
@@ -1286,7 +1399,7 @@ function buildSheet(spec, materials) {
     normalAttr.needsUpdate = true;
     // Each lean, scaled by how pressed its fold is.
     const leaning = leans.map(({ k, from, to }) => {
-      const pressed = smooth(clamp((bends[k].angle / Math.PI - RIM_FROM) / (1 - RIM_FROM)));
+      const pressed = smooth(clamp((Math.abs(bends[k].angle) / Math.PI - RIM_FROM) / (1 - RIM_FROM)));
       if (pressed <= 0) return null;
       const dir = new THREE.Vector3().fromArray(out, to * 3).sub(probe.fromArray(out, from * 3));
       return dir.lengthSq() > 1e-12 ? dir.normalize().multiplyScalar(pressed) : null;
@@ -1295,7 +1408,7 @@ function buildSheet(spec, materials) {
     // as it bends, and a rolled edge would pick out the shift.
     const still = pieces.map((piece) => piece.moves.reduce(
       (left, moves, k) => (moves
-        ? left * Math.max(0, 1 - Math.sin(bends[k].angle) * 8) * Math.max(0, 1 - Math.abs(bends[k].curl) * 4)
+        ? left * Math.max(0, 1 - Math.sin(Math.abs(bends[k].angle)) * 8) * Math.max(0, 1 - Math.abs(bends[k].curl) * 4)
         : left),
       1,
     ));

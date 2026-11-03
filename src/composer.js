@@ -1,10 +1,10 @@
 import { FOLDS } from './folds.js';
 import { foldMini } from './mini.js';
-import { PRESETS, createLetterCanvas, drawLetter } from './texture.js';
+import { PRESETS, createLetterCanvas, drawLetter, letterFontReady } from './texture.js';
 
 const PAPERS = PRESETS.filter((item) => item.id === 'cream' || item.id === 'kraft');
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-const FOLD_MS = { gate: 3800, pagu: 7400 };
+const FOLD_MS = { gate: 3800, pagu: 7400, jeff: 9700 };
 // How long typing pauses before the sheet is redrawn; phones redraw slowly.
 const TYPE_MS = window.matchMedia('(pointer: coarse)').matches ? 260 : 90;
 
@@ -22,6 +22,7 @@ export function mountComposer(scene) {
   const papers = document.getElementById('papers');
   const folds = document.getElementById('folds');
   const foldRef = document.getElementById('fold-ref');
+  const foldHistory = document.getElementById('fold-history');
   const foldCopy = document.getElementById('fold-copy');
   const foldVideo = document.getElementById('fold-video');
   const foldCatalog = document.getElementById('fold-catalog');
@@ -190,6 +191,7 @@ export function mountComposer(scene) {
   });
 
   render();
+  letterFontReady.then(render);
   FOLDS.forEach((item) => scene.prepare(item.id));
   scene.playTo(0, 0);
 
@@ -286,6 +288,8 @@ export function mountComposer(scene) {
     });
     const chosen = FOLDS.find((item) => item.id === fold);
     foldRef.textContent = `Unlocking History \u00b7 ${chosen.uh}`;
+    foldHistory.hidden = !chosen.history;
+    foldHistory.textContent = chosen.history || '';
     foldCopy.textContent = chosen.blurb;
     foldVideo.hidden = !chosen.video;
     if (chosen.video) foldVideo.href = chosen.video;
